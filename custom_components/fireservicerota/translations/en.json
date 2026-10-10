@@ -1,46 +1,51 @@
 {
-    "config": {
-        "abort": {
-            "already_configured": "Account is already configured",
-            "reauth_successful": "Re-authentication was successful"
-        },
-        "create_entry": {
-            "default": "Successfully authenticated"
-        },
-        "error": {
-            "invalid_auth": "Invalid authentication"
-        },
-        "step": {
-            "reauth_confirm": {
-                "data": {
-                    "password": "Password"
-                },
-                "description": "Authentication tokens became invalid, log in to recreate them."
-            },
-            "user": {
-                "data": {
-                    "password": "Password",
-                    "url": "Website",
-                    "username": "Username"
-                }
-            }
-        }
+  "config": {
+    "abort": {
+      "already_configured": "Account is already configured",
+      "reauth_successful": "Re-authentication was successful"
     },
-    "entity": {
-        "binary_sensor": {
-            "duty": {
-                "name": "Duty"
-            }
+    "create_entry": {
+      "default": "Successfully authenticated"
+    },
+    "error": {
+      "invalid_auth": "Invalid authentication"
+    },
+    "step": {
+      "reauth_confirm": {
+        "data": {
+          "password": "Password"
         },
-        "sensor": {
-            "incidents": {
-                "name": "Incidents"
-            }
-        },
-        "switch": {
-            "incident_response": {
-                "name": "Incident response"
-            }
+        "description": "Authentication tokens became invalid, log in to recreate them."
+      },
+      "user": {
+        "data": {
+          "password": "Password",
+          "url": "Website",
+          "username": "Username"
         }
+      }
     }
+  },
+  "entity": {
+    "binary_sensor": {
+      "duty": {
+        "name": "Duty"
+      }
+    },
+    "sensor": {
+      "incidents": {
+        "name": "Incidents"
+      }
+    },
+    "switch": {
+      "incident_response": {
+        "name": "Incident response"
+      }
+    }
+  },
+  "exceptions": {
+    "token_refresh_failed": {
+      "message": "Failed to refresh the FireServiceRota authentication tokens"
+    }
+  }
 }
