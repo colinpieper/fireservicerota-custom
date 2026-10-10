@@ -1,11 +1,12 @@
 {
   "domain": "fireservicerota",
   "name": "FireServiceRota",
-  "codeowners": ["@cyberjunky"],
+  "codeowners": ["@colinpieper"],
   "config_flow": true,
-  "documentation": "https://www.home-assistant.io/integrations/fireservicerota",
+  "documentation": "https://github.com/colinpieper/fireservicerota-custom",
   "integration_type": "service",
   "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/colinpieper/fireservicerota-custom/issues",
   "loggers": ["pyfireservicerota"],
   "requirements": ["pyfireservicerota==0.0.49"],
   "version": "2026.10.0"
