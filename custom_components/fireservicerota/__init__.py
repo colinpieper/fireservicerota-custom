@@ -11,7 +11,12 @@ from .coordinator import (
     FireServiceUpdateCoordinator,
 )
 
-PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR, Platform.SWITCH]
+PLATFORMS = [
+    Platform.BINARY_SENSOR,
+    Platform.EVENT,
+    Platform.SENSOR,
+    Platform.SWITCH,
+]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: FireServiceConfigEntry) -> bool:

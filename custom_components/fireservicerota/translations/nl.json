@@ -32,5 +32,22 @@
     "no_active_incident": {
       "message": "Er is geen actieve melding om op te reageren"
     }
+  },
+  "entity": {
+    "event": {
+      "incident": {
+        "name": "Melding",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "new": "Nieuwe melding",
+              "update": "Melding bijgewerkt",
+              "response_closed": "Reageren gesloten",
+              "ended": "Melding beëindigd"
+            }
+          }
+        }
+      }
+    }
   }
 }

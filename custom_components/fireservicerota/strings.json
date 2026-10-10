@@ -32,6 +32,21 @@
         "name": "Duty"
       }
     },
+    "event": {
+      "incident": {
+        "name": "Incident",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "new": "New incident",
+              "update": "Incident update",
+              "response_closed": "Response closed",
+              "ended": "Incident ended"
+            }
+          }
+        }
+      }
+    },
     "sensor": {
       "incidents": {
         "name": "Incidents"
