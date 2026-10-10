@@ -1,6 +1,6 @@
 """Additional FireServiceRota API calls not provided by pyfireservicerota."""
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pyfireservicerota import FireServiceRota
@@ -29,10 +29,17 @@ class FireServiceRotaApi(FireServiceRota):
         )
         return response if isinstance(response, dict) else None
 
-    def get_latest_incident(self) -> dict[str, Any] | None:
+    def get_latest_incident(self, max_age: timedelta) -> dict[str, Any] | None:
         """Get the most recent incident alert including all incident responses."""
-        incidents = self.get_incidents(limit=5)
-        if not incidents:
+        created_after = datetime.now(UTC) - max_age
+        incidents = self._request(
+            "GET",
+            endpoint="incidents",
+            log_msg_action="get recent incidents",
+            params={"per_page": 25, "created_after": created_after.isoformat()},
+            auth_request=False,
+        )
+        if not isinstance(incidents, list):
             return None
 
         alerts = [

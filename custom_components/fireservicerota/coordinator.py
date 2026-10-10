@@ -318,7 +318,7 @@ class FireServiceRotaClient:
 
     async def async_initialize(self) -> None:
         """Load the latest incident and response from the API after startup."""
-        data = await self.update_call(self.fsr.get_latest_incident)
+        data = await self.update_call(self.fsr.get_latest_incident, INCIDENT_MAX_AGE)
         if data is None and self.incident_id is not None:
             data = await self.update_call(self.fsr.get_incident, self.incident_id)
 
