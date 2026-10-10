@@ -2,12 +2,12 @@
 
 from unittest.mock import AsyncMock, patch
 
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
 from custom_components.fireservicerota.const import DOMAIN
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntryState
 from homeassistant.const import CONF_PASSWORD, CONF_URL, CONF_USERNAME
 from homeassistant.core import HomeAssistant
-
-from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 
 async def test_setup_token_refresh_failure(hass: HomeAssistant) -> None:

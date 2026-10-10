@@ -46,6 +46,9 @@
   "exceptions": {
     "token_refresh_failed": {
       "message": "Failed to refresh the FireServiceRota authentication tokens"
+    },
+    "no_active_incident": {
+      "message": "There is no active incident to respond to"
     }
   }
 }

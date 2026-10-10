@@ -28,6 +28,9 @@
   "exceptions": {
     "token_refresh_failed": {
       "message": "Vernieuwen van de FireServiceRota-authenticatietokens is mislukt"
+    },
+    "no_active_incident": {
+      "message": "Er is geen actieve melding om op te reageren"
     }
   }
 }

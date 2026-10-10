@@ -9,10 +9,22 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DOMAIN
-from .coordinator import FireServiceConfigEntry, FireServiceRotaClient
+from .const import SIGNAL_UPDATE
+from .coordinator import ADDRESS_KEYS, FireServiceConfigEntry, FireServiceRotaClient
 
 _LOGGER = logging.getLogger(__name__)
+
+INCIDENT_ATTRIBUTES = (
+    "id",
+    "created_at",
+    "message_to_speech_url",
+    "prio",
+    "type",
+    "responder_mode",
+    "can_respond_until",
+    "task_ids",
+    "state",
+)
 
 
 async def async_setup_entry(
@@ -37,17 +49,13 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
         self._client = client
         self._entry_id = self._client.entry_id
         self._attr_unique_id = f"{self._client.unique_id}_Incidents"
-        self._state: str | None = None
-        self._state_attributes: dict[str, Any] = {}
 
     @property
     @override
     def icon(self) -> str:
         """Return the icon to use in the frontend."""
-        if (
-            "prio" in self._state_attributes
-            and self._state_attributes["prio"][0] == "a"
-        ):
+        prio = (self._client.incident or {}).get("prio")
+        if isinstance(prio, str) and prio.startswith("a"):
             return "mdi:ambulance"
 
         return "mdi:fire-truck"
@@ -55,43 +63,23 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
     @property
     @override
     def native_value(self) -> str | None:
-        """Return the state of the sensor."""
-        return self._state
+        """Return the body of the active incident."""
+        return (self._client.incident or {}).get("body")
 
     @property
     @override
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return available attributes for sensor."""
-        attr: dict[str, Any] = {}
+        if not (data := self._client.incident):
+            return {}
 
-        if not (data := self._state_attributes):
-            return attr
-
-        for value in (
-            "id",
-            "trigger",
-            "created_at",
-            "message_to_speech_url",
-            "prio",
-            "type",
-            "responder_mode",
-            "can_respond_until",
-            "task_ids",
-        ):
-            if data.get(value):
-                attr[value] = data[value]
-
-            if "address" not in data:
-                continue
-
-            for address_value in (
-                "latitude",
-                "longitude",
-                "address_type",
-                "formatted_address",
-            ):
-                if address_value in data["address"]:
-                    attr[address_value] = data["address"][address_value]
+        attr: dict[str, Any] = {
+            key: data[key] for key in INCIDENT_ATTRIBUTES if data.get(key)
+        }
+        if self._client.trigger:
+            attr["trigger"] = self._client.trigger
+        if isinstance(address := data.get("address"), dict):
+            attr.update({key: address[key] for key in ADDRESS_KEYS if key in address})
 
         return attr
 
@@ -100,17 +88,14 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
         """Run when about to be added to hass."""
         await super().async_added_to_hass()
 
-        if state := await self.async_get_last_state():
-            self._state = state.state
-            self._state_attributes = state.attributes
-            if "id" in self._state_attributes:
-                self._client.incident_id = self._state_attributes["id"]
-            _LOGGER.debug("Restored entity 'Incidents' to: %s", self._state)
+        if (state := await self.async_get_last_state()) and "id" in state.attributes:
+            self._client.async_restore_incident(state.state, state.attributes)
+            _LOGGER.debug("Restored entity 'Incidents' to: %s", state.state)
 
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass,
-                f"{DOMAIN}_{self._entry_id}_update",
+                SIGNAL_UPDATE.format(self._entry_id),
                 self.client_update,
             )
         )
@@ -118,12 +103,4 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
     @callback
     def client_update(self) -> None:
         """Handle updated data from the data client."""
-        data = self._client.websocket.incident_data
-        if not data or "body" not in data:
-            return
-
-        self._state = data["body"]
-        self._state_attributes = data
-        if "id" in self._state_attributes:
-            self._client.incident_id = self._state_attributes["id"]
         self.async_write_ha_state()

@@ -1,7 +1,5 @@
 """The FireServiceRota integration."""
 
-from datetime import timedelta
-
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -12,8 +10,6 @@ from .coordinator import (
     FireServiceRotaClient,
     FireServiceUpdateCoordinator,
 )
-
-MIN_TIME_BETWEEN_UPDATES = timedelta(seconds=60)
 
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR, Platform.SWITCH]
 
@@ -30,7 +26,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: FireServiceConfigEntry) 
             translation_key="token_refresh_failed",
         )
 
-    entry.async_on_unload(client.async_stop_listener)
+    entry.async_on_unload(client.async_shutdown)
     coordinator = FireServiceUpdateCoordinator(hass, client, entry)
 
     await coordinator.async_config_entry_first_refresh()
@@ -38,6 +34,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: FireServiceConfigEntry) 
     entry.runtime_data = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Entities have restored their state, now load the latest incident.
+    entry.async_create_task(hass, client.async_initialize(), "initialize incident")
 
     return True
 

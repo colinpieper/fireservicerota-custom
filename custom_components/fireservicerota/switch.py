@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import DOMAIN
+from .const import SIGNAL_UPDATE
 from .coordinator import (
     FireServiceConfigEntry,
     FireServiceRotaClient,
@@ -50,17 +50,14 @@ class ResponseSwitch(SwitchEntity):
         self._attr_unique_id = f"{entry.unique_id}_Response"
         self._entry_id = entry.entry_id
 
-        self._state: bool | None = None
-        self._state_attributes: dict[str, Any] = {}
-        self._state_icon = None
-
     @property
     @override
     def icon(self) -> str:
         """Return the icon to use in the frontend."""
-        if self._state_icon == "acknowledged":
+        status = (self._client.response or {}).get("status")
+        if status == "acknowledged":
             return "mdi:run-fast"
-        if self._state_icon == "rejected":
+        if status == "rejected":
             return "mdi:account-off-outline"
 
         return "mdi:forum"
@@ -68,8 +65,10 @@ class ResponseSwitch(SwitchEntity):
     @property
     @override
     def is_on(self) -> bool | None:
-        """Get the assumed state of the switch."""
-        return self._state
+        """Return if the incident was acknowledged."""
+        if not (response := self._client.response) or "status" not in response:
+            return None
+        return response["status"] == "acknowledged"
 
     @property
     @override
@@ -81,11 +80,9 @@ class ResponseSwitch(SwitchEntity):
     @override
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return available attributes for switch."""
-        attr: dict[str, Any] = {}
-        if not self._state_attributes:
-            return attr
+        if not (data := self._client.response):
+            return {}
 
-        data = self._state_attributes
         return {
             key: data[key]
             for key in (
@@ -112,7 +109,7 @@ class ResponseSwitch(SwitchEntity):
         """Send Reject response status."""
         await self.async_set_response(False)
 
-    async def async_set_response(self, value) -> None:
+    async def async_set_response(self, value: bool) -> None:
         """Send response status."""
         if not self._client.on_duty:
             _LOGGER.debug(
@@ -121,7 +118,6 @@ class ResponseSwitch(SwitchEntity):
             return
 
         await self._client.async_set_response(value)
-        self.client_update()
 
     @override
     async def async_added_to_hass(self) -> None:
@@ -129,7 +125,7 @@ class ResponseSwitch(SwitchEntity):
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass,
-                f"{DOMAIN}_{self._entry_id}_update",
+                SIGNAL_UPDATE.format(self._entry_id),
                 self.client_update,
             )
         )
@@ -140,17 +136,4 @@ class ResponseSwitch(SwitchEntity):
     @callback
     def client_update(self) -> None:
         """Handle updated incident data from the client."""
-        self.async_schedule_update_ha_state(True)
-
-    async def async_update(self) -> None:
-        """Update FireServiceRota response data."""
-        data = await self._client.async_response_update()
-
-        if not data or "status" not in data:
-            return
-
-        self._state = data["status"] == "acknowledged"
-        self._state_attributes = data
-        self._state_icon = data["status"]
-
-        _LOGGER.debug("Set state of entity 'Response Switch' to '%s'", self._state)
+        self.async_write_ha_state()
