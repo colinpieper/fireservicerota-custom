@@ -6,6 +6,18 @@
         "state": {
           "on": "mdi:calendar-check"
         }
+      },
+      "incident_active": {
+        "default": "mdi:alarm-light-off-outline",
+        "state": {
+          "on": "mdi:alarm-light"
+        }
+      },
+      "incident_assigned": {
+        "default": "mdi:seat-outline",
+        "state": {
+          "on": "mdi:seat"
+        }
       }
     },
     "event": {

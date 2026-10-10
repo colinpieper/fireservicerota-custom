@@ -30,6 +30,12 @@
     "binary_sensor": {
       "duty": {
         "name": "Duty"
+      },
+      "incident_active": {
+        "name": "Incident active"
+      },
+      "incident_assigned": {
+        "name": "Incident assigned"
       }
     },
     "event": {
