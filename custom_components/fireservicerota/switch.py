@@ -1,6 +1,5 @@
 """Switch platform for FireServiceRota integration."""
 
-import logging
 from typing import Any, override
 
 from homeassistant.components.switch import SwitchEntity
@@ -15,8 +14,6 @@ from .coordinator import (
     FireServiceRotaClient,
     FireServiceUpdateCoordinator,
 )
-
-_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
@@ -72,12 +69,6 @@ class ResponseSwitch(SwitchEntity):
 
     @property
     @override
-    def available(self) -> bool:
-        """Return if switch is available."""
-        return self._client.on_duty
-
-    @property
-    @override
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return available attributes for switch."""
         if not (data := self._client.response):
@@ -111,12 +102,6 @@ class ResponseSwitch(SwitchEntity):
 
     async def async_set_response(self, value: bool) -> None:
         """Send response status."""
-        if not self._client.on_duty:
-            _LOGGER.debug(
-                "Cannot send incident response when not on duty",
-            )
-            return
-
         await self._client.async_set_response(value)
 
     @override
@@ -128,9 +113,6 @@ class ResponseSwitch(SwitchEntity):
                 SIGNAL_UPDATE.format(self._entry_id),
                 self.client_update,
             )
-        )
-        self.async_on_remove(
-            self._coordinator.async_add_listener(self.async_write_ha_state)
         )
 
     @callback
