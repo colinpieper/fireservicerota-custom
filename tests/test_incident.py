@@ -245,27 +245,32 @@ async def test_finished_alerting_does_not_end_incident(
     assert mock_api.get_incident.call_count == calls + 1
 
 
-async def test_incident_ends_after_active_duration(
+async def test_incident_ends_at_end_time(
     hass: HomeAssistant,
     freezer: FrozenDateTimeFactory,
     mock_api: MagicMock,
     setup_integration,
     send_message,
 ) -> None:
-    """Test an incident stops being active but stays shown as the last one."""
+    """Test an incident stops being active but stays shown once it has ended."""
     await setup_integration()
     incident = make_incident(status="acknowledged", assigned_skill_ids=[165])
     mock_api.get_incident.return_value = incident
     await send_message(make_message(incident))
 
-    await _advance(hass, freezer, timedelta(hours=1, minutes=50))
+    await _advance(hass, freezer, timedelta(hours=1))
     assert hass.states.get(ACTIVE).state == STATE_ON
 
-    for _ in range(4):
-        await _advance(hass, freezer, timedelta(minutes=5))
+    end_time = dt_util.utcnow()
+    mock_api.get_incident.return_value = make_incident(
+        status="acknowledged", assigned_skill_ids=[165], end_time=end_time
+    )
+    await _advance(hass, freezer, timedelta(minutes=5))
     assert hass.states.get(ACTIVE).state == STATE_OFF
-    assert hass.states.get(SENSOR).state == incident["body"]
-    assert hass.states.get(SENSOR).attributes["id"] == 1000
+    sensor = hass.states.get(SENSOR)
+    assert sensor.state == incident["body"]
+    assert sensor.attributes["id"] == 1000
+    assert sensor.attributes["end_time"] == end_time.isoformat()
     assert hass.states.get(SWITCH).state == STATE_ON
 
     # Polling stops, and late messages do not make the incident active again.
@@ -281,6 +286,65 @@ async def test_incident_ends_after_active_duration(
     await send_message(make_message(new_incident))
     assert hass.states.get(ACTIVE).state == STATE_ON
     assert hass.states.get(SENSOR).attributes["id"] == 1001
+
+
+async def test_future_end_time_keeps_incident_active(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    mock_api: MagicMock,
+    setup_integration,
+    send_message,
+) -> None:
+    """Test an end time in the future does not end the incident yet."""
+    await setup_integration()
+    end_time = dt_util.utcnow() + timedelta(hours=1)
+    incident = make_incident(end_time=end_time)
+    mock_api.get_incident.return_value = incident
+    await send_message(make_message(incident))
+
+    await _advance(hass, freezer, timedelta(minutes=30))
+    assert hass.states.get(ACTIVE).state == STATE_ON
+
+    for _ in range(7):
+        await _advance(hass, freezer, timedelta(minutes=5))
+    assert hass.states.get(ACTIVE).state == STATE_OFF
+
+
+async def test_startup_with_ended_incident(
+    hass: HomeAssistant, mock_api: MagicMock, setup_integration
+) -> None:
+    """Test an incident that ended before startup is shown but not active."""
+    mock_api.get_latest_incident.return_value = make_incident(
+        created_at=dt_util.utcnow() - timedelta(hours=2),
+        end_time=dt_util.utcnow() - timedelta(hours=1),
+    )
+
+    await setup_integration()
+
+    assert hass.states.get(SENSOR).state == "P 2 BLB-04 Test incident 1000"
+    assert hass.states.get(ACTIVE).state == STATE_OFF
+
+
+async def test_incident_ends_after_maximum_age(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    mock_api: MagicMock,
+    setup_integration,
+    send_message,
+) -> None:
+    """Test an incident that never gets an end time ends after 24 hours."""
+    await setup_integration()
+    incident = make_incident()
+    mock_api.get_incident.return_value = incident
+    await send_message(make_message(incident))
+
+    await _advance(hass, freezer, timedelta(hours=23, minutes=50))
+    assert hass.states.get(ACTIVE).state == STATE_ON
+
+    for _ in range(4):
+        await _advance(hass, freezer, timedelta(minutes=5))
+    assert hass.states.get(ACTIVE).state == STATE_OFF
+    assert hass.states.get(SENSOR).state == incident["body"]
 
 
 async def test_unload_stops_polling(

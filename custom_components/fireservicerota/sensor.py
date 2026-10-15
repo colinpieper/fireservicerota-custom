@@ -24,6 +24,8 @@ INCIDENT_ATTRIBUTES = (
     "can_respond_until",
     "task_ids",
     "state",
+    "start_time",
+    "end_time",
 )
 
 

@@ -33,8 +33,7 @@ from .const import (
     EVENT_UPDATE,
     FAST_POLL_INTERVAL,
     FAST_POLL_WINDOW,
-    INCIDENT_ACTIVE_DURATION,
-    INCIDENT_LOOKUP_WINDOW,
+    INCIDENT_MAX_AGE,
     RESPONSE_CLOSED_ATTEMPTS,
     RESPONSE_CLOSED_DELAY,
     RESPONSE_CLOSED_RETRY_DELAY,
@@ -304,7 +303,13 @@ class FireServiceRotaClient:
 
         incident: dict[str, Any] = {
             key: attributes[key]
-            for key in (*INCIDENT_EVENT_KEYS, "responder_mode", "state")
+            for key in (
+                *INCIDENT_EVENT_KEYS,
+                "responder_mode",
+                "state",
+                "start_time",
+                "end_time",
+            )
             if key in attributes
         }
         incident["body"] = body
@@ -316,14 +321,12 @@ class FireServiceRotaClient:
         self.incident = incident
         self.trigger = attributes.get("trigger")
         self._incident_seen_at = dt_util.utcnow()
-        self.active = self._incident_age() < INCIDENT_ACTIVE_DURATION
+        self.active = not self._incident_over()
         _LOGGER.debug("Restored incident %s", self.incident_id)
 
     async def async_initialize(self) -> None:
         """Load the latest incident and response from the API after startup."""
-        data = await self.update_call(
-            self.fsr.get_latest_incident, INCIDENT_LOOKUP_WINDOW
-        )
+        data = await self.update_call(self.fsr.get_latest_incident, INCIDENT_MAX_AGE)
         if data is None and self.incident_id is not None:
             data = await self.update_call(self.fsr.get_incident, self.incident_id)
 
@@ -342,7 +345,7 @@ class FireServiceRotaClient:
             return
 
         self.active = True
-        if self._incident_age() >= INCIDENT_ACTIVE_DURATION:
+        if self._incident_over():
             self._async_end_incident(fire_event=False)
             return
 
@@ -443,6 +446,9 @@ class FireServiceRotaClient:
 
         if trigger == EVENT_NEW:
             self._async_schedule_poll()
+        elif self._incident_over():
+            self._async_end_incident(fire_event=True)
+            return
 
         # Alerting sends bursts of messages that mostly repeat the same data.
         if (event_data := incident_event_data(self.incident)) != self._last_event_data:
@@ -492,6 +498,10 @@ class FireServiceRotaClient:
         # The state is about alerting the responders, not about the incident.
         if (state := data.get("state")) != previous_state:
             _LOGGER.debug("Incident %s alerting state is now %s", incident_id, state)
+
+        if not initial and self._incident_over():
+            self._async_end_incident(fire_event=True)
+            return
 
         if not initial:
             async_dispatcher_send(self._hass, SIGNAL_UPDATE.format(self.entry_id))
@@ -568,7 +578,7 @@ class FireServiceRotaClient:
 
     @callback
     def _async_schedule_poll(self) -> None:
-        """Schedule the next incident poll, or end an incident that is too old."""
+        """Schedule the next incident poll, or end an incident that is over."""
         if self._unsub_poll:
             self._unsub_poll()
             self._unsub_poll = None
@@ -576,12 +586,11 @@ class FireServiceRotaClient:
         if not self.active:
             return
 
-        age = self._incident_age()
-        if age >= INCIDENT_ACTIVE_DURATION:
-            _LOGGER.debug("Incident %s is too old to be active", self.incident_id)
+        if self._incident_over():
             self._async_end_incident(fire_event=True)
             return
 
+        age = self._incident_age()
         interval = FAST_POLL_INTERVAL if age < FAST_POLL_WINDOW else SLOW_POLL_INTERVAL
         self._unsub_poll = async_call_later(self._hass, interval, self._async_poll)
 
@@ -591,6 +600,13 @@ class FireServiceRotaClient:
         await self.async_refresh_incident()
         if self.active and self._unsub_poll is None:
             self._async_schedule_poll()
+
+    def _incident_over(self) -> bool:
+        """Return if the last incident has ended or is too old to be active."""
+        end_time = _parse_datetime((self.incident or {}).get("end_time"))
+        return (
+            end_time is not None and end_time <= dt_util.utcnow()
+        ) or self._incident_age() >= INCIDENT_MAX_AGE
 
     def _incident_age(self) -> timedelta:
         """Return the time since the last incident was created."""
@@ -622,6 +638,7 @@ class FireServiceRotaClient:
                     "id": incident.get("id"),
                     "body": incident.get("body"),
                     "state": incident.get("state"),
+                    "end_time": incident.get("end_time"),
                 },
             )
         async_dispatcher_send(self._hass, SIGNAL_UPDATE.format(self.entry_id))

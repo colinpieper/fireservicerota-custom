@@ -37,6 +37,7 @@ def make_incident(
     status: str | None = "pending",
     assigned_skill_ids: list[int] | None = None,
     respond_seconds: int = 80,
+    end_time: datetime | None = None,
 ) -> dict[str, Any]:
     """Return an incident as returned by GET /incidents/{id}."""
     created = created_at or dt_util.utcnow()
@@ -47,6 +48,8 @@ def make_incident(
         "state": state,
         "prio": "prio2",
         "created_at": created.isoformat(),
+        "start_time": created.isoformat(),
+        "end_time": end_time.isoformat() if end_time else None,
         "can_respond_until": (created + timedelta(seconds=respond_seconds)).isoformat(),
         "task_ids": [4967],
         "address": {

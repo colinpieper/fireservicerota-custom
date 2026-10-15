@@ -11,7 +11,7 @@ Built against Home Assistant 2026.9 and `pyfireservicerota==0.0.49`.
 | Response after restart | `switch.incident_response` stays `unknown` until the next websocket message | The latest incident and your response are fetched at startup |
 | Late assignment changes | Only fetched on websocket messages | The incident is polled every 30 s for 30 minutes, then every 5 minutes while it is active |
 | Off duty | Switch is `unavailable` and responding is refused | Switch always shows your response, and responding works whenever an incident is active |
-| End of an incident | The last incident stays shown forever | The last incident also stays shown, and `binary_sensor.incident_active` turns off 2 h after creation (the API does not report when an incident is over) |
+| End of an incident | The last incident stays shown forever | The last incident also stays shown, and `binary_sensor.incident_active` turns off when the incident gets an `end_time` (or 24 h after creation) |
 | New vs update | Decided by the library from an in-memory list, so ongoing incidents show up as `new` again after a restart | Decided from the active incident id |
 | Assignment after the response deadline | Not available | `event.incident` fires `response_closed` with the final assignment |
 | Token refresh failure at setup | Setup fails | Starts a reauth flow |
@@ -21,13 +21,13 @@ Built against Home Assistant 2026.9 and `pyfireservicerota==0.0.49`.
 - **`event.incident`** fires the following event types:
   - `new` / `update`: on websocket messages, with repeated messages that don't change the data skipped. Data: `id`, `body`, `prio`, `type`, `created_at`, `can_respond_until`, `task_ids`, `message_to_speech_url`, `latitude`, `longitude`, `address_type`, `formatted_address`.
   - `response_closed`: once per incident, 10 s after the response deadline (the earliest `can_respond_until` seen, 1:20 after the alert in practice). It runs after a fresh fetch of your response. Data: `id`, `body`, `status`, `acknowledged`, `assigned`, `assigned_skill_ids`, `reported_status`.
-  - `ended`: when the incident stops being active, 2 h after creation. Data: `id`, `body`, `state`.
+  - `ended`: when the incident gets an `end_time`, or 24 h after creation without one. Data: `id`, `body`, `state`, `end_time`.
 - **`binary_sensor.incident_assigned`**: on when your response has assigned skills, and `unknown` without a response. Attributes: `incident_id`, `assigned_skill_ids`, `suggested_skill_ids` (from the incident's skill assignments), `status`, `reported_status`.
-- **`binary_sensor.incident_active`**: on for 2 h after an incident is created. Attributes: `incident_id`, `state`.
+- **`binary_sensor.incident_active`**: on until the incident has ended. Attributes: `incident_id`, `state`.
 
-Existing entities: `sensor.incidents` (body of the last incident, with a new `state` attribute), `switch.incident_response` and `binary_sensor.duty`.
+Existing entities: `sensor.incidents` (body of the last incident, with new `state`, `start_time` and `end_time` attributes), `switch.incident_response` and `binary_sensor.duty`.
 
-The incident's `state` (`alerting`, `alerted`, `finished`, `failed`) is about alerting the responders. It is usually `finished` within seconds, while the incident is still ongoing.
+The incident's `state` (`alerting`, `alerted`, `finished`, `failed`) is about alerting the responders. It is usually `finished` within seconds, while the incident is still ongoing. The incident has ended once it has an `end_time`.
 
 ## Installation
 

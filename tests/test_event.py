@@ -230,13 +230,17 @@ async def test_ended_event(
     await _advance(hass, freezer, timedelta(minutes=30))
     assert "ended" not in [event["event_type"] for event in fired]
 
-    for _ in range(19):
-        await _advance(hass, freezer, timedelta(minutes=5))
+    end_time = dt_util.utcnow()
+    mock_api.get_incident.return_value = make_incident(
+        state="finished", end_time=end_time
+    )
+    await _advance(hass, freezer, timedelta(minutes=5))
 
     ended = fired[-1]
     assert ended["event_type"] == "ended"
     assert ended["id"] == 1000
     assert ended["state"] == "finished"
+    assert ended["end_time"] == end_time.isoformat()
 
 
 async def test_repeated_messages_fire_one_update(

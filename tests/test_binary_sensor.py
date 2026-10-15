@@ -8,6 +8,7 @@ from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 
 from .conftest import make_incident, make_message
 
@@ -53,7 +54,12 @@ async def test_assignment_changes(
     assert state.attributes["suggested_skill_ids"] == [165]
     assert state.attributes["status"] == "acknowledged"
 
-    freezer.tick(timedelta(hours=2))
+    mock_api.get_incident.return_value = make_incident(
+        status="acknowledged",
+        assigned_skill_ids=[165],
+        end_time=dt_util.utcnow(),
+    )
+    freezer.tick(timedelta(seconds=30))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
 
