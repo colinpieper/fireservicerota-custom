@@ -27,14 +27,14 @@ from homeassistant.util import dt as dt_util
 from .api import FireServiceRotaApi
 from .const import (
     DOMAIN,
-    ENDED_STATES,
     EVENT_ENDED,
     EVENT_NEW,
     EVENT_RESPONSE_CLOSED,
     EVENT_UPDATE,
     FAST_POLL_INTERVAL,
     FAST_POLL_WINDOW,
-    INCIDENT_MAX_AGE,
+    INCIDENT_ACTIVE_DURATION,
+    INCIDENT_LOOKUP_WINDOW,
     RESPONSE_CLOSED_ATTEMPTS,
     RESPONSE_CLOSED_DELAY,
     RESPONSE_CLOSED_RETRY_DELAY,
@@ -217,8 +217,9 @@ class FireServiceRotaClient:
         self.token_refresh_failure = False
         self.on_duty = False
 
-        # The active incident and the user's own response to it.
+        # The last incident and the user's own response to it.
         self.incident: dict[str, Any] | None = None
+        self.active = False
         self.response: dict[str, Any] | None = None
         self.system_assigned_skill_ids: list[int] | None = None
         self.trigger: str | None = None
@@ -226,6 +227,7 @@ class FireServiceRotaClient:
 
         self._incident_seen_at: datetime | None = None
         self._ended_incident_ids: deque[int] = deque(maxlen=10)
+        self._last_event_data: dict[str, Any] | None = None
         self._response_closed_sent = False
         self._response_closed_attempts = 0
         self._unsub_poll: CALLBACK_TYPE | None = None
@@ -253,7 +255,7 @@ class FireServiceRotaClient:
 
     @property
     def incident_id(self) -> int | None:
-        """Return the id of the active incident."""
+        """Return the id of the last incident."""
         return self.incident.get("id") if self.incident else None
 
     async def setup(self) -> None:
@@ -314,11 +316,14 @@ class FireServiceRotaClient:
         self.incident = incident
         self.trigger = attributes.get("trigger")
         self._incident_seen_at = dt_util.utcnow()
+        self.active = self._incident_age() < INCIDENT_ACTIVE_DURATION
         _LOGGER.debug("Restored incident %s", self.incident_id)
 
     async def async_initialize(self) -> None:
         """Load the latest incident and response from the API after startup."""
-        data = await self.update_call(self.fsr.get_latest_incident, INCIDENT_MAX_AGE)
+        data = await self.update_call(
+            self.fsr.get_latest_incident, INCIDENT_LOOKUP_WINDOW
+        )
         if data is None and self.incident_id is not None:
             data = await self.update_call(self.fsr.get_incident, self.incident_id)
 
@@ -332,11 +337,13 @@ class FireServiceRotaClient:
         if data is not None:
             self._apply_incident(data, initial=True)
 
-        if self.incident is not None and self._incident_age() >= INCIDENT_MAX_AGE:
-            self._async_end_incident(fire_event=False)
-
         if self.incident is None:
             async_dispatcher_send(self._hass, SIGNAL_UPDATE.format(self.entry_id))
+            return
+
+        self.active = True
+        if self._incident_age() >= INCIDENT_ACTIVE_DURATION:
+            self._async_end_incident(fire_event=False)
             return
 
         # Only announce the final response when its deadline is still ahead.
@@ -353,7 +360,7 @@ class FireServiceRotaClient:
         async_dispatcher_send(self._hass, SIGNAL_UPDATE.format(self.entry_id))
 
     async def async_refresh_incident(self) -> bool:
-        """Fetch the active incident and the user's response to it."""
+        """Fetch the last incident and the user's response to it."""
         if (incident_id := self.incident_id) is None:
             return False
 
@@ -417,6 +424,8 @@ class FireServiceRotaClient:
 
             trigger = EVENT_NEW
             self._async_cancel_timers()
+            self.active = True
+            self._last_event_data = None
             self.incident = {}
             self.response = None
             self.system_assigned_skill_ids = None
@@ -435,12 +444,12 @@ class FireServiceRotaClient:
         if trigger == EVENT_NEW:
             self._async_schedule_poll()
 
-        async_dispatcher_send(
-            self._hass,
-            SIGNAL_EVENT.format(self.entry_id),
-            trigger,
-            incident_event_data(self.incident),
-        )
+        # Alerting sends bursts of messages that mostly repeat the same data.
+        if (event_data := incident_event_data(self.incident)) != self._last_event_data:
+            self._last_event_data = event_data
+            async_dispatcher_send(
+                self._hass, SIGNAL_EVENT.format(self.entry_id), trigger, event_data
+            )
         async_dispatcher_send(self._hass, SIGNAL_UPDATE.format(self.entry_id))
         self._refresh_debouncer.async_schedule_call()
 
@@ -449,8 +458,6 @@ class FireServiceRotaClient:
         """Apply full incident data fetched from the API."""
         incident_id = data.get("id")
         if incident_id is None or incident_id != self.incident_id and not initial:
-            return
-        if incident_id in self._ended_incident_ids:
             return
 
         previous_state = (self.incident or {}).get("state")
@@ -482,12 +489,9 @@ class FireServiceRotaClient:
 
         self._async_update_deadline(data.get("can_respond_until"), schedule=not initial)
 
+        # The state is about alerting the responders, not about the incident.
         if (state := data.get("state")) != previous_state:
-            _LOGGER.debug("Incident %s state is now %s", incident_id, state)
-
-        if state in ENDED_STATES:
-            self._async_end_incident(fire_event=not initial)
-            return
+            _LOGGER.debug("Incident %s alerting state is now %s", incident_id, state)
 
         if not initial:
             async_dispatcher_send(self._hass, SIGNAL_UPDATE.format(self.entry_id))
@@ -569,11 +573,11 @@ class FireServiceRotaClient:
             self._unsub_poll()
             self._unsub_poll = None
 
-        if self.incident is None:
+        if not self.active:
             return
 
         age = self._incident_age()
-        if age >= INCIDENT_MAX_AGE:
+        if age >= INCIDENT_ACTIVE_DURATION:
             _LOGGER.debug("Incident %s is too old to be active", self.incident_id)
             self._async_end_incident(fire_event=True)
             return
@@ -585,11 +589,11 @@ class FireServiceRotaClient:
         """Poll the active incident."""
         self._unsub_poll = None
         await self.async_refresh_incident()
-        if self.incident is not None and self._unsub_poll is None:
+        if self.active and self._unsub_poll is None:
             self._async_schedule_poll()
 
     def _incident_age(self) -> timedelta:
-        """Return the time since the active incident was created."""
+        """Return the time since the last incident was created."""
         started = (
             _parse_datetime((self.incident or {}).get("created_at"))
             or self._incident_seen_at
@@ -599,18 +603,15 @@ class FireServiceRotaClient:
 
     @callback
     def _async_end_incident(self, *, fire_event: bool) -> None:
-        """Mark the active incident as no longer active."""
-        if (incident := self.incident) is None:
+        """Mark the incident as no longer active, keeping it as the last one."""
+        if (incident := self.incident) is None or not self.active:
             return
 
         _LOGGER.debug("Incident %s is no longer active", incident.get("id"))
         self._async_cancel_timers()
         self._ended_incident_ids.append(incident.get("id"))
-        self.incident = None
-        self.response = None
-        self.system_assigned_skill_ids = None
-        self.trigger = None
-        self.response_deadline = None
+        self.active = False
+        self._response_closed_sent = True
 
         if fire_event:
             async_dispatcher_send(

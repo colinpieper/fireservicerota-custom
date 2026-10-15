@@ -9,7 +9,7 @@ from pytest_homeassistant_custom_component.common import (
     mock_restore_cache,
 )
 
-from homeassistant.const import STATE_ON, STATE_UNKNOWN
+from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant, State
 from homeassistant.util import dt as dt_util
 
@@ -17,6 +17,7 @@ from .conftest import make_incident, make_message
 
 SENSOR = "sensor.incidents"
 SWITCH = "switch.incident_response"
+ACTIVE = "binary_sensor.incident_active"
 
 
 async def _advance(
@@ -60,20 +61,18 @@ async def test_startup_without_incident(
     mock_api.get_incident.assert_not_called()
 
 
-async def test_startup_clears_finished_incident(
+async def test_startup_keeps_finished_alerting_active(
     hass: HomeAssistant, mock_api: MagicMock, setup_integration
 ) -> None:
-    """Test a restored incident that has finished is no longer shown."""
-    mock_restore_cache(
-        hass, [State(SENSOR, "Old incident", {"id": 1000, "trigger": "update"})]
-    )
+    """Test an incident whose alerting has finished is still active."""
     mock_api.get_latest_incident.return_value = make_incident(state="finished")
 
     await setup_integration()
 
     sensor = hass.states.get(SENSOR)
-    assert sensor.state == STATE_UNKNOWN
-    assert "id" not in sensor.attributes
+    assert sensor.state == "P 2 BLB-04 Test incident 1000"
+    assert sensor.attributes["state"] == "finished"
+    assert hass.states.get(ACTIVE).state == STATE_ON
 
 
 async def test_startup_falls_back_to_restored_incident(
@@ -100,10 +99,10 @@ async def test_startup_falls_back_to_restored_incident(
     assert hass.states.get(SWITCH).state == STATE_ON
 
 
-async def test_startup_clears_stale_restored_incident(
+async def test_startup_keeps_old_restored_incident(
     hass: HomeAssistant, mock_api: MagicMock, setup_integration
 ) -> None:
-    """Test a restored incident older than the maximum age is cleared."""
+    """Test an old restored incident stays shown as the last, inactive incident."""
     mock_restore_cache(
         hass,
         [
@@ -120,7 +119,9 @@ async def test_startup_clears_stale_restored_incident(
 
     await setup_integration()
 
-    assert hass.states.get(SENSOR).state == STATE_UNKNOWN
+    assert hass.states.get(SENSOR).state == "Old incident"
+    assert hass.states.get(ACTIVE).state == STATE_OFF
+    assert mock_api.get_incident.call_count == 1
 
 
 async def test_new_and_update_messages(
@@ -219,55 +220,67 @@ async def test_late_assignment_is_picked_up(
     assert hass.states.get(SWITCH).attributes["assigned_skill_ids"] == [165]
 
 
-async def test_finished_incident_ends(
+async def test_finished_alerting_does_not_end_incident(
     hass: HomeAssistant,
     freezer: FrozenDateTimeFactory,
     mock_api: MagicMock,
     setup_integration,
     send_message,
 ) -> None:
-    """Test a finished incident is cleared and polling stops."""
+    """Test the alerting state reaching finished keeps the incident active."""
     await setup_integration()
     incident = make_incident(status="acknowledged")
-    mock_api.get_incident.return_value = incident
-    await send_message(make_message(incident))
-
     mock_api.get_incident.return_value = make_incident(
         status="acknowledged", state="finished"
     )
+    await send_message(make_message(incident))
     await _advance(hass, freezer, timedelta(seconds=30))
 
-    assert hass.states.get(SENSOR).state == STATE_UNKNOWN
-    assert hass.states.get(SWITCH).state == STATE_UNKNOWN
+    assert hass.states.get(SENSOR).state == incident["body"]
+    assert hass.states.get(ACTIVE).state == STATE_ON
+    assert hass.states.get(SWITCH).state == STATE_ON
 
     calls = mock_api.get_incident.call_count
-    await _advance(hass, freezer, timedelta(minutes=10))
-    assert mock_api.get_incident.call_count == calls
-
-    # Late messages for the finished incident do not bring it back.
-    await send_message(make_message(incident, trigger="update"))
-    assert hass.states.get(SENSOR).state == STATE_UNKNOWN
+    await _advance(hass, freezer, timedelta(seconds=30))
+    assert mock_api.get_incident.call_count == calls + 1
 
 
-async def test_incident_ends_after_maximum_age(
+async def test_incident_ends_after_active_duration(
     hass: HomeAssistant,
     freezer: FrozenDateTimeFactory,
     mock_api: MagicMock,
     setup_integration,
     send_message,
 ) -> None:
-    """Test an incident that never finishes is cleared after 24 hours."""
+    """Test an incident stops being active but stays shown as the last one."""
     await setup_integration()
-    incident = make_incident()
+    incident = make_incident(status="acknowledged", assigned_skill_ids=[165])
     mock_api.get_incident.return_value = incident
     await send_message(make_message(incident))
 
-    await _advance(hass, freezer, timedelta(hours=23, minutes=50))
-    assert hass.states.get(SENSOR).state == incident["body"]
+    await _advance(hass, freezer, timedelta(hours=1, minutes=50))
+    assert hass.states.get(ACTIVE).state == STATE_ON
 
     for _ in range(4):
         await _advance(hass, freezer, timedelta(minutes=5))
-    assert hass.states.get(SENSOR).state == STATE_UNKNOWN
+    assert hass.states.get(ACTIVE).state == STATE_OFF
+    assert hass.states.get(SENSOR).state == incident["body"]
+    assert hass.states.get(SENSOR).attributes["id"] == 1000
+    assert hass.states.get(SWITCH).state == STATE_ON
+
+    # Polling stops, and late messages do not make the incident active again.
+    calls = mock_api.get_incident.call_count
+    await _advance(hass, freezer, timedelta(minutes=10))
+    assert mock_api.get_incident.call_count == calls
+    await send_message(make_message(incident, trigger="update"))
+    assert hass.states.get(ACTIVE).state == STATE_OFF
+
+    # A new incident replaces it.
+    new_incident = make_incident(1001)
+    mock_api.get_incident.return_value = new_incident
+    await send_message(make_message(new_incident))
+    assert hass.states.get(ACTIVE).state == STATE_ON
+    assert hass.states.get(SENSOR).attributes["id"] == 1001
 
 
 async def test_unload_stops_polling(

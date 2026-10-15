@@ -220,17 +220,66 @@ async def test_ended_event(
     setup_integration,
     send_message,
 ) -> None:
-    """Test an ended event is fired when the incident finishes."""
+    """Test an ended event is fired when the incident is no longer active."""
     await setup_integration()
     fired = _capture_events(hass)
     incident = make_incident()
-    mock_api.get_incident.return_value = incident
+    mock_api.get_incident.return_value = make_incident(state="finished")
     await send_message(make_message(incident))
 
-    mock_api.get_incident.return_value = make_incident(state="finished")
-    await _advance(hass, freezer, timedelta(seconds=30))
+    await _advance(hass, freezer, timedelta(minutes=30))
+    assert "ended" not in [event["event_type"] for event in fired]
+
+    for _ in range(19):
+        await _advance(hass, freezer, timedelta(minutes=5))
 
     ended = fired[-1]
     assert ended["event_type"] == "ended"
     assert ended["id"] == 1000
     assert ended["state"] == "finished"
+
+
+async def test_repeated_messages_fire_one_update(
+    hass: HomeAssistant, mock_api: MagicMock, setup_integration, send_message
+) -> None:
+    """Test a burst of identical messages fires a single update event."""
+    await setup_integration()
+    fired = _capture_events(hass)
+    incident = make_incident()
+    mock_api.get_incident.return_value = incident
+
+    await send_message(make_message(incident))
+    for _ in range(5):
+        await send_message(make_message(incident, trigger="update"))
+    await send_message(
+        make_message(incident, message_to_speech_url="https://example.com/a.mp3")
+    )
+
+    assert [event["event_type"] for event in fired] == ["new", "update"]
+    assert fired[1]["message_to_speech_url"] == "https://example.com/a.mp3"
+
+
+async def test_response_closed_after_alerting_finished(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    mock_api: MagicMock,
+    setup_integration,
+    send_message,
+) -> None:
+    """Test the response deadline is still announced after alerting finished."""
+    await setup_integration()
+    fired = _capture_events(hass)
+    incident = make_incident(status="acknowledged")
+    await send_message(make_message(incident))
+
+    # Alerting finishes seconds after the incident was created.
+    mock_api.get_incident.return_value = make_incident(
+        status="acknowledged", state="finished", assigned_skill_ids=[165]
+    )
+    await _advance(hass, freezer, timedelta(seconds=12))
+    await send_message(make_message(incident, trigger="update"))
+    await _advance(hass, freezer, timedelta(seconds=80))
+
+    closed = [event for event in fired if event["event_type"] == "response_closed"]
+    assert len(closed) == 1
+    assert closed[0]["assigned"] is True

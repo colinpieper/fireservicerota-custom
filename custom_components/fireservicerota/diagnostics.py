@@ -39,6 +39,7 @@ async def async_get_config_entry_diagnostics(
             "on_duty": client.on_duty,
             "availability": coordinator.data,
             "incident": client.incident,
+            "incident_active": client.active,
             "trigger": client.trigger,
             "response": client.response,
             "suggested_skill_ids": client.system_assigned_skill_ids,

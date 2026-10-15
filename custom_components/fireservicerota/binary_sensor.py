@@ -87,7 +87,7 @@ class ResponseBinarySensor(
 
 
 class IncidentBinarySensor(BinarySensorEntity):
-    """Base class for binary sensors about the active incident."""
+    """Base class for binary sensors about the last incident."""
 
     _attr_should_poll = False
     _attr_has_entity_name = True
@@ -122,13 +122,13 @@ class IncidentActiveBinarySensor(IncidentBinarySensor):
     @override
     def is_on(self) -> bool:
         """Return if an incident is active."""
-        return self._client.incident is not None
+        return self._client.active
 
     @property
     @override
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return the active incident id and state."""
-        if not (incident := self._client.incident):
+        """Return the active incident id and alerting state."""
+        if not self._client.active or not (incident := self._client.incident):
             return {}
         return {"incident_id": incident.get("id"), "state": incident.get("state")}
 

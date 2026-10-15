@@ -24,21 +24,22 @@ EVENT_RESPONSE_CLOSED = "response_closed"
 EVENT_ENDED = "ended"
 
 # Poll the active incident often while responses and assignments settle,
-# then slowly until it is finished.
+# then slowly until it is no longer active.
 FAST_POLL_INTERVAL = timedelta(seconds=30)
 FAST_POLL_WINDOW = timedelta(minutes=30)
 SLOW_POLL_INTERVAL = timedelta(minutes=5)
 
-# An incident that never reports a final state is no longer active after this.
-INCIDENT_MAX_AGE = timedelta(hours=24)
+# The API does not report when an incident is over, so an incident is active
+# for a fixed time after it was created. It stays shown as the last incident.
+INCIDENT_ACTIVE_DURATION = timedelta(hours=2)
+
+# How far back the latest incident is looked up at startup.
+INCIDENT_LOOKUP_WINDOW = timedelta(hours=24)
 
 # Time after the response deadline before the final assignment is fetched.
 RESPONSE_CLOSED_DELAY = timedelta(seconds=10)
 RESPONSE_CLOSED_RETRY_DELAY = timedelta(seconds=10)
 RESPONSE_CLOSED_ATTEMPTS = 3
-
-# Incident states after which the incident is no longer active.
-ENDED_STATES = {"finished", "failed"}
 
 # Only alerts are incidents to respond to; reports are created afterwards.
 INCIDENT_TYPE_ALERT = "incident_alert"

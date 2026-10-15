@@ -53,10 +53,11 @@ async def test_assignment_changes(
     assert state.attributes["suggested_skill_ids"] == [165]
     assert state.attributes["status"] == "acknowledged"
 
-    mock_api.get_incident.return_value = make_incident(state="finished")
-    freezer.tick(timedelta(seconds=30))
+    freezer.tick(timedelta(hours=2))
     async_fire_time_changed(hass)
     await hass.async_block_till_done()
 
+    # The last incident's assignment stays shown after it is no longer active.
     assert hass.states.get(ACTIVE).state == STATE_OFF
-    assert hass.states.get(ASSIGNED).state == STATE_UNKNOWN
+    assert hass.states.get(ACTIVE).attributes.get("incident_id") is None
+    assert hass.states.get(ASSIGNED).state == STATE_ON
