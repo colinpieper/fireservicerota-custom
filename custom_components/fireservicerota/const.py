@@ -64,3 +64,14 @@ HISTORY_FINAL_AGE = timedelta(days=7)
 MAX_RESPONSE_MINUTES = 1440
 # The deployment percentage covers at most this many recent deployments.
 DEPLOYMENT_WINDOW = 10
+
+# Duty schedules with their own deployment percentages: weekdays from
+# DAY_SCHEDULE_START until DAY_SCHEDULE_END, and all other times.
+SCHEDULE_DAY = "day"
+SCHEDULE_EVENING_NIGHT_WEEKEND = "evening_night_weekend"
+SCHEDULES = (SCHEDULE_DAY, SCHEDULE_EVENING_NIGHT_WEEKEND)
+DAY_SCHEDULE_START = 6
+DAY_SCHEDULE_END = 18
+
+# Options.
+CONF_COLLEAGUES = "colleagues"

@@ -93,7 +93,28 @@ def test_summarize_incident() -> None:
         assigned_skill_ids=[165],
         end_time=created + timedelta(minutes=42, seconds=20),
     )
-    assert summarize_incident(assigned, USER_ID, now) == {
+    summary = summarize_incident(assigned, USER_ID, now)
+    assert summary.pop("responses") == {
+        "7": {
+            "name": None,
+            "available": False,
+            "group_available": False,
+            "on_duty": False,
+            "status": "acknowledged",
+            "reported_status": None,
+            "assigned": True,
+        },
+        str(USER_ID): {
+            "name": "Colin",
+            "available": False,
+            "group_available": False,
+            "on_duty": False,
+            "status": "acknowledged",
+            "reported_status": "dispatched",
+            "assigned": True,
+        },
+    }
+    assert summary == {
         "created_at": assigned["created_at"],
         "alerted": True,
         "acknowledged": True,
@@ -274,12 +295,17 @@ async def test_history_statistics(
         (second_hour, 0.92),
     ]
 
-    # Assigned to incident 3, available for incident 2 but rejected it.
-    state = hass.states.get("sensor.deployment_percentage")
-    assert state.state == "67"
-    assert state.attributes["alarms"] == 3
-    assert state.attributes["real_deployments"] == 1
+    # Available for incident 2 on a weekday afternoon, but rejected it.
+    state = hass.states.get("sensor.deployment_percentage_day")
+    assert state.state == "50"
+    assert state.attributes["alarms"] == 2
+    assert state.attributes["real_deployments"] == 0
     assert state.attributes["virtual_deployments"] == 1
+    # Assigned to incident 3 on a Sunday night.
+    state = hass.states.get("sensor.deployment_percentage_evening_night_weekend")
+    assert state.state == "100"
+    assert state.attributes["alarms"] == 1
+    assert state.attributes["real_deployments"] == 1
     assert {call.args[0] for call in mock_api.get_incident.call_args_list} == {
         1,
         2,

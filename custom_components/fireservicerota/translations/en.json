@@ -57,8 +57,20 @@
       "incidents": {
         "name": "Incidents"
       },
-      "deployment_percentage": {
-        "name": "Deployment percentage"
+      "deployment_percentage_day": {
+        "name": "Deployment percentage day"
+      },
+      "deployment_percentage_evening_night_weekend": {
+        "name": "Deployment percentage evening night weekend"
+      },
+      "colleague_deployment_percentage_day": {
+        "name": "Deployment percentage {name} day"
+      },
+      "colleague_deployment_percentage_evening_night_weekend": {
+        "name": "Deployment percentage {name} evening night weekend"
+      },
+      "aspirant_ranking": {
+        "name": "Aspirant ranking"
       }
     },
     "switch": {
@@ -122,6 +134,20 @@
           "description": "Comments shown with the period."
         }
       }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Colleagues",
+        "description": "Select the colleagues you compete with for a seat, to show their deployment percentages and your ranking during an incident.",
+        "data": {
+          "colleagues": "Colleagues"
+        }
+      }
+    },
+    "abort": {
+      "not_loaded": "The integration must be loaded to select colleagues."
     }
   }
 }

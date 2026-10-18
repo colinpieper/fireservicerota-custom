@@ -2,7 +2,7 @@
 
 import asyncio
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from datetime import datetime
 import logging
 from typing import Any
@@ -23,6 +23,8 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import DurationConverter
 
 from .const import (
+    DAY_SCHEDULE_END,
+    DAY_SCHEDULE_START,
     DEPLOYMENT_WINDOW,
     DOMAIN,
     HISTORY_FINAL_AGE,
@@ -31,6 +33,8 @@ from .const import (
     HISTORY_RETRY_DELAY,
     INCIDENT_TYPE_ALERT,
     MAX_RESPONSE_MINUTES,
+    SCHEDULE_DAY,
+    SCHEDULE_EVENING_NIGHT_WEEKEND,
     SIGNAL_HISTORY,
 )
 from .coordinator import FireServiceRotaClient
@@ -62,16 +66,53 @@ INCIDENT_KEYS = {
     "on_duty",
     "status",
     "reported_status",
+    "responses",
     "final",
 }
 
 # Response statuses that are not declining or ignoring the alert.
 NOT_DECLINED_STATUSES = {"acknowledged", "not_sent"}
 
+# Order of the response statuses when ranking candidates for a seat.
+STATUS_RANKS = {"acknowledged": 0, "pending": 1, "not_sent": 1}
+
+# Priority groups of the fair deployment proposal, highest first.
+PRIORITY_GROUPS = ("on_duty", "paraat", "available", "unavailable")
+
 
 def statistic_id(user_id: int, key: str) -> str:
     """Return the statistic id of a user's incident statistic."""
     return f"{DOMAIN}:user_{user_id}_{key}"
+
+
+def incident_schedule(created_at: datetime) -> str:
+    """Return the duty schedule an incident falls in, by its local start time."""
+    local = dt_util.as_local(created_at)
+    if local.weekday() < 5 and DAY_SCHEDULE_START <= local.hour < DAY_SCHEDULE_END:
+        return SCHEDULE_DAY
+    return SCHEDULE_EVENING_NIGHT_WEEKEND
+
+
+def summarize_response(response: Mapping[str, Any]) -> dict[str, Any]:
+    """Return a user's response to an incident as stored in the history."""
+    return {
+        "name": response.get("user_name"),
+        "available": bool(response.get("available_at_incident_creation")),
+        "group_available": bool(response.get("group_available_at_incident_creation")),
+        "on_duty": bool(response.get("on_duty")),
+        "status": response.get("status"),
+        "reported_status": response.get("reported_status"),
+        "assigned": bool(response.get("assigned_skill_ids")),
+    }
+
+
+def priority_group(response: Mapping[str, Any]) -> str:
+    """Return the priority group of a stored response at the alarm."""
+    if response["on_duty"]:
+        return "on_duty"
+    if response["available"]:
+        return "paraat" if response["group_available"] else "available"
+    return "unavailable"
 
 
 def is_real_deployment(incident: Mapping[str, Any]) -> bool:
@@ -90,27 +131,35 @@ def is_virtual_deployment(incident: Mapping[str, Any]) -> bool:
 
 
 def deployment_stats(
-    incidents: Iterable[Mapping[str, Any]], now: datetime
+    incidents: Iterable[Mapping[str, Any]],
+    now: datetime,
+    user_id: int | None = None,
+    schedule: str | None = None,
 ) -> dict[str, int] | None:
     """Return the deployment percentage as used for the fair deployment proposal.
 
     (real + virtual deployments) / alarms, over the current calendar year or
-    since the last DEPLOYMENT_WINDOW deployments, whichever is shorter.
+    since the last DEPLOYMENT_WINDOW deployments, whichever is shorter. Without
+    a user id it is the user's own, with a schedule only incidents in it count.
     """
     year_start = dt_util.start_of_local_day(now).replace(month=1, day=1)
-    alarms = sorted(
-        (
-            incident
-            for incident in incidents
-            if incident["alerted"]
-            and dt_util.parse_datetime(incident["created_at"]) >= year_start
-        ),
-        key=lambda incident: dt_util.parse_datetime(incident["created_at"]),
-        reverse=True,
-    )
+    alarms: list[tuple[datetime, Mapping[str, Any]]] = []
+    for incident in incidents:
+        created = dt_util.parse_datetime(incident["created_at"])
+        if created < year_start or (
+            schedule is not None and incident_schedule(created) != schedule
+        ):
+            continue
+        if user_id is None:
+            response = incident if incident["alerted"] else None
+        else:
+            response = incident["responses"].get(str(user_id))
+        if response is not None:
+            alarms.append((created, response))
+    alarms.sort(key=lambda alarm: alarm[0], reverse=True)
 
     count = real = virtual = 0
-    for incident in alarms:
+    for _created, incident in alarms:
         if real + virtual >= DEPLOYMENT_WINDOW:
             break
         count += 1
@@ -127,6 +176,41 @@ def deployment_stats(
         "real_deployments": real,
         "virtual_deployments": virtual,
     }
+
+
+def rank_candidates(
+    responses: Iterable[Mapping[str, Any]],
+    user_ids: Collection[int],
+    percentages: Mapping[int, int | None],
+) -> list[dict[str, Any]]:
+    """Rank users' responses to an incident for a seat, best candidate first.
+
+    Like the fair deployment proposal: users who acknowledged before users who
+    can still respond, then by priority group, then by lowest deployment
+    percentage. Users who declined are left out.
+    """
+    candidates = []
+    for response in responses:
+        user_id = response.get("user_id")
+        if user_id not in user_ids or response.get("status") not in STATUS_RANKS:
+            continue
+        candidates.append(
+            {
+                "user_id": user_id,
+                "name": response.get("user_name"),
+                "status": response["status"],
+                "group": priority_group(summarize_response(response)),
+                "percentage": percentages.get(user_id),
+            }
+        )
+    candidates.sort(
+        key=lambda candidate: (
+            STATUS_RANKS[candidate["status"]],
+            PRIORITY_GROUPS.index(candidate["group"]),
+            101 if candidate["percentage"] is None else candidate["percentage"],
+        )
+    )
+    return candidates
 
 
 def summarize_incident(
@@ -165,6 +249,11 @@ def summarize_incident(
         "on_duty": bool(response.get("on_duty")),
         "status": response.get("status"),
         "reported_status": response.get("reported_status"),
+        "responses": {
+            str(response["user_id"]): summarize_response(response)
+            for response in incident.get("incident_responses") or []
+            if response.get("user_id") is not None
+        },
         # Without an end time the response can still change.
         "final": end_time is not None or now - created >= HISTORY_FINAL_AGE,
     }
@@ -212,6 +301,19 @@ class IncidentHistory:
             for incident in (self._incidents or {}).values()
             if incident.keys() >= INCIDENT_KEYS
         ]
+
+    @property
+    def known_users(self) -> dict[int, str]:
+        """Return the users that responded to stored incidents, by latest name."""
+        users: dict[int, str] = {}
+        for incident in sorted(
+            self.incidents,
+            key=lambda incident: dt_util.parse_datetime(incident["created_at"]),
+        ):
+            for user_id, response in incident["responses"].items():
+                if response["name"]:
+                    users[int(user_id)] = response["name"]
+        return users
 
     async def _async_fetch(self, user_id: int) -> bool:
         """Fetch incidents that are new or not final, return if any changed."""
