@@ -29,6 +29,39 @@ class FireServiceRotaApi(FireServiceRota):
         )
         return response if isinstance(response, dict) else None
 
+    def set_availability(
+        self,
+        start_time: datetime,
+        end_time: datetime,
+        available: bool | None,
+        comments: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Set the availability of the user's membership for a period.
+
+        None clears the period, so the regular schedule applies again.
+        """
+        if not self._user:
+            self.get_user()
+
+        membership_id = self._user["memberships"][0]["id"]
+        body: dict[str, Any] = {
+            "start_time": start_time.isoformat(),
+            "end_time": end_time.isoformat(),
+            "available": available,
+            "channel": "geofencing",
+        }
+        if comments:
+            body["comments"] = comments
+
+        response = self._request(
+            "POST",
+            endpoint=f"memberships/{membership_id}/schedule_exceptions",
+            log_msg_action="set availability",
+            body=body,
+            auth_request=False,
+        )
+        return response if isinstance(response, dict) else None
+
     def get_incidents_page(
         self, page: int, per_page: int
     ) -> list[dict[str, Any]] | None:

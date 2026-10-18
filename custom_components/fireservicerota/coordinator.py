@@ -396,6 +396,26 @@ class FireServiceRotaClient:
         await self.update_call(self.fsr.set_incident_response, self.incident_id, value)
         await self.async_refresh_incident()
 
+    async def async_set_availability(
+        self,
+        start_time: datetime,
+        end_time: datetime,
+        available: bool | None,
+        comments: str | None = None,
+    ) -> None:
+        """Set the user's availability for a period."""
+        _LOGGER.debug(
+            "Setting availability from %s to %s to %s", start_time, end_time, available
+        )
+
+        if not await self.update_call(
+            self.fsr.set_availability, start_time, end_time, available, comments
+        ):
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="set_availability_failed",
+            )
+
     async def async_stop_listener(self) -> None:
         """Stop listener."""
         await self._hass.async_add_executor_job(self.websocket.stop_listener)

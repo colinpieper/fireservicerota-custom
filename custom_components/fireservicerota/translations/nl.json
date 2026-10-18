@@ -31,6 +31,55 @@
     },
     "no_active_incident": {
       "message": "Er is geen actieve melding om op te reageren"
+    },
+    "set_availability_failed": {
+      "message": "Instellen van de beschikbaarheid is mislukt"
+    },
+    "end_before_start": {
+      "message": "De eindtijd moet na de begintijd liggen"
+    },
+    "config_entry_not_found": {
+      "message": "Geen geladen FireServiceRota-account gevonden"
+    },
+    "config_entry_required": {
+      "message": "Er is meer dan één FireServiceRota-account ingesteld, kies er een"
+    }
+  },
+  "selector": {
+    "availability": {
+      "options": {
+        "available": "Beschikbaar",
+        "unavailable": "Niet beschikbaar",
+        "clear": "Wissen"
+      }
+    }
+  },
+  "services": {
+    "set_availability": {
+      "name": "Beschikbaarheid instellen",
+      "description": "Stelt je beschikbaarheid in voor een periode, zoals een uitzondering op je rooster in de app.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Account",
+          "description": "Het FireServiceRota-account. Alleen nodig als er meer dan één is ingesteld."
+        },
+        "start_time": {
+          "name": "Begintijd",
+          "description": "Begin van de periode. Standaard nu."
+        },
+        "end_time": {
+          "name": "Eindtijd",
+          "description": "Einde van de periode."
+        },
+        "availability": {
+          "name": "Beschikbaarheid",
+          "description": "Beschikbaar, niet beschikbaar, of de periode wissen zodat je vaste rooster weer geldt."
+        },
+        "comments": {
+          "name": "Opmerkingen",
+          "description": "Opmerkingen bij de periode."
+        }
+      }
     }
   }
 }

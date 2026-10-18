@@ -1,0 +1,28 @@
+set_availability:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: fireservicerota
+    start_time:
+      example: "2026-10-18 18:00:00"
+      selector:
+        datetime:
+    end_time:
+      required: true
+      example: "2026-10-18 18:15:00"
+      selector:
+        datetime:
+    availability:
+      required: true
+      default: unavailable
+      selector:
+        select:
+          translation_key: availability
+          options:
+            - available
+            - unavailable
+            - clear
+    comments:
+      selector:
+        text:
