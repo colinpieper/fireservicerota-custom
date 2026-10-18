@@ -43,7 +43,9 @@ INCIDENT_TYPE_ALERT = "incident_alert"
 
 # Incident history statistics.
 HISTORY_PER_PAGE = 100
-HISTORY_REQUEST_DELAY = 0.5
+# The API refuses requests after about 20 within a minute.
+HISTORY_REQUEST_DELAY = 4
+HISTORY_RETRY_DELAY = 60
 HISTORY_SYNC_INTERVAL = timedelta(days=1)
 # An incident without an end time no longer changes after this.
 HISTORY_FINAL_AGE = timedelta(days=7)
