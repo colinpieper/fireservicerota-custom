@@ -36,7 +36,10 @@ def auto_enable_custom_integrations(
 @pytest.fixture(autouse=True)
 def no_request_delay() -> None:
     """Do not wait between incident requests."""
-    with patch("custom_components.fireservicerota.history.HISTORY_REQUEST_DELAY", 0):
+    with (
+        patch("custom_components.fireservicerota.history.HISTORY_REQUEST_DELAY", 0),
+        patch("custom_components.fireservicerota.history.HISTORY_RETRY_DELAY", 0),
+    ):
         yield
 
 
@@ -229,6 +232,52 @@ async def test_history_paging_ignored(
     assert mock_api.get_incidents_page.call_count == 2
     assert "history is limited to 2 incidents" in caplog.text
     assert (await get_sums(hass, "incidents"))[-1][1] == 2
+
+
+async def test_history_rate_limited(
+    hass: HomeAssistant,
+    mock_api: MagicMock,
+    setup_integration: Callable[[], Any],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Test a failed request is retried once and stops the sync until the next."""
+    created = datetime(2026, 9, 1, 10, 0, tzinfo=dt_util.UTC)
+    incidents = [
+        make_incident(i, created_at=created - timedelta(days=i), status="rejected")
+        for i in range(1, 5)
+    ]
+    serve(mock_api, incidents)
+    by_id = {incident["id"]: incident for incident in incidents}
+    responses = {1: [None], 2: [], 3: [None, None]}
+
+    def _get_incident(incident_id: int) -> dict[str, Any] | None:
+        if pending := responses.get(incident_id):
+            return pending.pop(0)
+        return by_id[incident_id]
+
+    mock_api.get_incident.side_effect = _get_incident
+
+    config_entry = await setup_integration()
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert [call.args[0] for call in mock_api.get_incident.call_args_list] == [
+        1,
+        1,
+        2,
+        3,
+        3,
+    ]
+    assert "Could not fetch incident 3" in caplog.text
+    assert (await get_sums(hass, "incidents"))[-1][1] == 2
+
+    mock_api.get_incident.reset_mock()
+    async_dispatcher_send(
+        hass, SIGNAL_EVENT.format(config_entry.entry_id), EVENT_ENDED, {"id": 1}
+    )
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert [call.args[0] for call in mock_api.get_incident.call_args_list] == [3, 4]
+    assert (await get_sums(hass, "incidents"))[-1][1] == 4
 
 
 async def test_history_fetch_failed(

@@ -26,6 +26,7 @@ from .const import (
     HISTORY_FINAL_AGE,
     HISTORY_PER_PAGE,
     HISTORY_REQUEST_DELAY,
+    HISTORY_RETRY_DELAY,
     INCIDENT_TYPE_ALERT,
     MAX_RESPONSE_MINUTES,
 )
@@ -124,8 +125,9 @@ class IncidentHistory:
         seen: set[int] = set()
         changed = 0
         page = 1
+        stopped = False
 
-        while True:
+        while not stopped:
             incidents = await self._client.update_call(
                 fsr.get_incidents_page, page, HISTORY_PER_PAGE
             )
@@ -154,9 +156,21 @@ class IncidentHistory:
                 details = await self._client.update_call(
                     fsr.get_incident, incident["id"]
                 )
-                summary = details and summarize_incident(
-                    details, user_id, dt_util.utcnow()
-                )
+                if details is None:
+                    # Most likely rate limited, try once more after a pause.
+                    await asyncio.sleep(HISTORY_RETRY_DELAY)
+                    details = await self._client.update_call(
+                        fsr.get_incident, incident["id"]
+                    )
+                if details is None:
+                    _LOGGER.warning(
+                        "Could not fetch incident %s, continuing the incident "
+                        "history on the next sync",
+                        incident["id"],
+                    )
+                    stopped = True
+                    break
+                summary = summarize_incident(details, user_id, dt_util.utcnow())
                 if summary and summary != stored:
                     self._incidents[key] = summary
                     changed += 1
