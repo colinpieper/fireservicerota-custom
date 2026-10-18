@@ -154,12 +154,13 @@ async def test_history_statistics(
             end_time=first + timedelta(hours=1),
         ),
     ]
+    # The API returns fewer incidents per page than asked for.
     serve(mock_api, incidents, per_page=2)
 
-    with patch("custom_components.fireservicerota.history.HISTORY_PER_PAGE", 2):
-        await setup_integration()
-        await hass.async_block_till_done(wait_background_tasks=True)
+    await setup_integration()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
+    assert mock_api.get_incidents_page.call_count == 3
     first_hour = first.replace(minute=0)
     second_hour = second.replace(minute=0)
     assert await get_sums(hass, "incidents") == [(first_hour, 2), (second_hour, 3)]

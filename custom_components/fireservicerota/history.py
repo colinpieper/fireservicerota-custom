@@ -134,15 +134,16 @@ class IncidentHistory:
             if incidents is None:
                 _LOGGER.warning("Could not fetch page %s of the incident history", page)
                 break
+            if not incidents:
+                break
             new = [incident for incident in incidents if incident.get("id") not in seen]
             if not new:
-                if page > 1:
-                    _LOGGER.warning(
-                        "Page %s of the incident history repeats earlier incidents, "
-                        "the history is limited to %s incidents",
-                        page,
-                        len(seen),
-                    )
+                _LOGGER.warning(
+                    "Page %s of the incident history repeats earlier incidents, "
+                    "the history is limited to %s incidents",
+                    page,
+                    len(seen),
+                )
                 break
             seen.update(incident["id"] for incident in new)
 
@@ -176,9 +177,10 @@ class IncidentHistory:
                     changed += 1
                 await asyncio.sleep(HISTORY_REQUEST_DELAY)
 
-            if len(incidents) < HISTORY_PER_PAGE:
-                break
+            # The API may return fewer incidents per page than asked for, so
+            # only an empty page ends the history.
             page += 1
+            await asyncio.sleep(HISTORY_REQUEST_DELAY)
 
         _LOGGER.debug(
             "Synced incident history: %s incidents listed, %s changed, %s stored",
