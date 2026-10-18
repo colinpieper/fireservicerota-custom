@@ -40,3 +40,11 @@ RESPONSE_CLOSED_ATTEMPTS = 3
 
 # Only alerts are incidents to respond to; reports are created afterwards.
 INCIDENT_TYPE_ALERT = "incident_alert"
+
+# Incident history statistics.
+HISTORY_PER_PAGE = 100
+HISTORY_REQUEST_DELAY = 0.5
+HISTORY_SYNC_INTERVAL = timedelta(days=1)
+# An incident without an end time no longer changes after this.
+HISTORY_FINAL_AGE = timedelta(days=7)
+MAX_RESPONSE_MINUTES = 1440

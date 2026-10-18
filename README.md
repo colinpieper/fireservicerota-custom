@@ -27,6 +27,19 @@ Built against Home Assistant 2026.9 and `pyfireservicerota==0.0.49`.
 
 Existing entities: `sensor.incidents` (body of the last incident, with new `state`, `start_time` and `end_time` attributes), `switch.incident_response` and `binary_sensor.duty`.
 
+### Incident statistics
+
+The integration keeps long-term statistics of all your incident alerts. For dashboards it offers the [Statistic](https://www.home-assistant.io/dashboards/statistic/) and [Statistics graph](https://www.home-assistant.io/dashboards/statistics-graph/) cards, `<user id>` being your FireServiceRota user id:
+
+| Statistic id | Value |
+|---|---|
+| `fireservicerota:user_<user id>_incidents` | Incident alerts |
+| `fireservicerota:user_<user id>_acknowledged` | Alerts you acknowledged |
+| `fireservicerota:user_<user id>_assigned` | Alerts you were assigned to |
+| `fireservicerota:user_<user id>_response_minutes` | Minutes from alert to `end_time` of assigned incidents (at most 24 h each) |
+
+On first start the integration fetches all incidents the API returns. That takes one request per incident, about 2 per second. After that it checks for new incidents at startup, daily and after every `ended` event. An incident without an `end_time` is fetched again until it has one, or until it is 7 days old. Incidents are counted in the hour they were created.
+
 The incident's `state` (`alerting`, `alerted`, `finished`, `failed`) is about alerting the responders. It is usually `finished` within seconds, while the incident is still ongoing. The incident has ended once it has an `end_time`.
 
 ## Installation

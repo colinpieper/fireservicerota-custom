@@ -29,6 +29,19 @@ class FireServiceRotaApi(FireServiceRota):
         )
         return response if isinstance(response, dict) else None
 
+    def get_incidents_page(
+        self, page: int, per_page: int
+    ) -> list[dict[str, Any]] | None:
+        """Get one page of incidents without incident responses."""
+        incidents = self._request(
+            "GET",
+            endpoint="incidents",
+            log_msg_action="get incidents page",
+            params={"page": page, "per_page": per_page},
+            auth_request=False,
+        )
+        return incidents if isinstance(incidents, list) else None
+
     def get_latest_incident(self, max_age: timedelta) -> dict[str, Any] | None:
         """Get the most recent incident alert including all incident responses."""
         created_after = datetime.now(UTC) - max_age

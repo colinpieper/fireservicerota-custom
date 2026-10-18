@@ -108,6 +108,7 @@ def mock_api() -> Generator[MagicMock]:
         }
         api.get_latest_incident.return_value = None
         api.get_incident.return_value = None
+        api.get_incidents_page.return_value = []
         api.set_incident_response.return_value = None
         yield api
 
