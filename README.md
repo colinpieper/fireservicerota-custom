@@ -20,9 +20,9 @@ Built against Home Assistant 2026.9 and `pyfireservicerota==0.0.49`.
 
 - **`event.incident`** fires the following event types:
   - `new` / `update`: on websocket messages, with repeated messages that don't change the data skipped. Data: `id`, `body`, `prio`, `type`, `created_at`, `can_respond_until`, `task_ids`, `message_to_speech_url`, `latitude`, `longitude`, `address_type`, `formatted_address`.
-  - `response_closed`: once per incident, 10 s after the response deadline (the earliest `can_respond_until` seen, 1:20 after the alert in practice). It runs after a fresh fetch of your response. Data: `id`, `body`, `status`, `acknowledged`, `assigned`, `assigned_skill_ids`, `reported_status`.
+  - `response_closed`: once per incident, 10 s after the response deadline (the earliest `can_respond_until` seen, 1:20 after the alert in practice). It runs after a fresh fetch of your response. Data: `id`, `body`, `status`, `acknowledged`, `assigned`, `assigned_skill_ids`, `reported_status`, `available_at_incident_creation`, `on_duty`.
   - `ended`: when the incident gets an `end_time`, or 24 h after creation without one. Data: `id`, `body`, `state`, `end_time`.
-- **`binary_sensor.incident_assigned`**: on when your response has assigned skills, and `unknown` without a response. Attributes: `incident_id`, `assigned_skill_ids`, `suggested_skill_ids` (from the incident's skill assignments), `status`, `reported_status`.
+- **`binary_sensor.incident_assigned`**: on when your response has assigned skills, and `unknown` without a response. Attributes: `incident_id`, `assigned_skill_ids`, `suggested_skill_ids` (from the incident's skill assignments), `status`, `reported_status`, `available_at_incident_creation` (you were available at the alarm), `on_duty`.
 - **`binary_sensor.incident_active`**: on until the incident has ended. Attributes: `incident_id`, `state`.
 
 Existing entities: `sensor.incidents` (body of the last incident, with new `state`, `start_time` and `end_time` attributes), `switch.incident_response` and `binary_sensor.duty`.
@@ -36,9 +36,18 @@ The integration keeps long-term statistics of all your incident alerts. For dash
 | `fireservicerota:user_<user id>_incidents` | Incident alerts you were alerted for (that have a response of yours, so not those from before you joined) |
 | `fireservicerota:user_<user id>_acknowledged` | Alerts you acknowledged |
 | `fireservicerota:user_<user id>_assigned` | Alerts you were assigned to |
-| `fireservicerota:user_<user id>_response_minutes` | Minutes from alert to `end_time` of assigned incidents (at most 24 h each) |
+| `fireservicerota:user_<user id>_response_time` | Hours from alert to `end_time` of assigned incidents (at most 24 h each) |
 
 On first start the integration fetches all incidents the API returns. That takes one request per incident, one every 4 seconds. When the API refuses a request (it rate limits after about 20 requests within a minute), the integration waits a minute and tries again, and otherwise continues on the next sync. After that it checks for new incidents at startup, daily and after every `ended` event. An incident without an `end_time` is fetched again until it has one, or until it is 7 days old. Incidents are counted in the hour they were created.
+
+### Deployment percentage
+
+`sensor.deployment_percentage` estimates the deployment percentage (*uitrukpercentage*) of the [fair deployment proposal](https://help.fireservicerota.com/nl/article/hoe-werkt-het-nieuwe-eerlijk-inzetvoorstel). The API doesn't provide it, so it is calculated from the incident history: (real + virtual deployments) / alarms, over the current calendar year or since the last 10 deployments, whichever is shorter.
+
+- Real deployment: you were assigned, or your reported status is `dispatched`.
+- Virtual deployment: you were available (`available_at_incident_creation`) or on duty at the alarm, but rejected or didn't respond, or acknowledged and didn't show up (`no_show`).
+
+Attributes: `alarms`, `real_deployments`, `virtual_deployments`. It is updated after every sync of the incident history.
 
 The incident's `state` (`alerting`, `alerted`, `finished`, `failed`) is about alerting the responders. It is usually `finished` within seconds, while the incident is still ongoing. The incident has ended once it has an `end_time`.
 

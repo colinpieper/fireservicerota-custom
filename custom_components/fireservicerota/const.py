@@ -16,6 +16,7 @@ DATA_COORDINATOR = "coordinator"
 # Dispatcher signals, formatted with the config entry id.
 SIGNAL_UPDATE = f"{DOMAIN}_{{}}_update"
 SIGNAL_EVENT = f"{DOMAIN}_{{}}_event"
+SIGNAL_HISTORY = f"{DOMAIN}_{{}}_history"
 
 # Incident event types.
 EVENT_NEW = "new"
@@ -50,3 +51,5 @@ HISTORY_SYNC_INTERVAL = timedelta(days=1)
 # An incident without an end time no longer changes after this.
 HISTORY_FINAL_AGE = timedelta(days=7)
 MAX_RESPONSE_MINUTES = 1440
+# The deployment percentage covers at most this many recent deployments.
+DEPLOYMENT_WINDOW = 10

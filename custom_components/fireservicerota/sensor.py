@@ -3,14 +3,17 @@
 import logging
 from typing import Any, override
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.const import PERCENTAGE
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.util import dt as dt_util
 
-from .const import SIGNAL_UPDATE
+from .const import SIGNAL_HISTORY, SIGNAL_UPDATE
 from .coordinator import ADDRESS_KEYS, FireServiceConfigEntry, FireServiceRotaClient
+from .history import IncidentHistory, deployment_stats
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,7 +38,14 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up FireServiceRota sensor based on a config entry."""
-    async_add_entities([IncidentsSensor(entry.runtime_data.client)])
+    async_add_entities(
+        [
+            IncidentsSensor(entry.runtime_data.client),
+            DeploymentPercentageSensor(
+                entry.runtime_data.client, entry.runtime_data.history
+            ),
+        ]
+    )
 
 
 # pylint: disable-next=home-assistant-invalid-inheritance # needs fixing
@@ -105,4 +115,52 @@ class IncidentsSensor(RestoreEntity, SensorEntity):
     @callback
     def client_update(self) -> None:
         """Handle updated data from the data client."""
+        self.async_write_ha_state()
+
+
+class DeploymentPercentageSensor(SensorEntity):
+    """Deployment percentage as used for the fair deployment proposal."""
+
+    _attr_should_poll = False
+    _attr_has_entity_name = True
+    _attr_translation_key = "deployment_percentage"
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, client: FireServiceRotaClient, history: IncidentHistory) -> None:
+        """Initialize."""
+        self._entry_id = client.entry_id
+        self._history = history
+        self._stats: dict[str, int] | None = None
+        self._attr_unique_id = f"{client.unique_id}_DeploymentPercentage"
+
+    @property
+    @override
+    def native_value(self) -> int | None:
+        """Return the deployment percentage."""
+        return self._stats["percentage"] if self._stats else None
+
+    @property
+    @override
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the counts the percentage is based on."""
+        if not self._stats:
+            return {}
+        return {key: value for key, value in self._stats.items() if key != "percentage"}
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Run when about to be added to hass."""
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_HISTORY.format(self._entry_id),
+                self.history_update,
+            )
+        )
+
+    @callback
+    def history_update(self) -> None:
+        """Handle a synced incident history."""
+        self._stats = deployment_stats(self._history.incidents, dt_util.now())
         self.async_write_ha_state()

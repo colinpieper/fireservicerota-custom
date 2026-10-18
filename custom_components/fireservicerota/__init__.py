@@ -41,14 +41,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: FireServiceConfigEntry) 
 
     await coordinator.async_config_entry_first_refresh()
 
+    coordinator.history = history = IncidentHistory(hass, client)
     entry.runtime_data = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Entities have restored their state, now load the latest incident.
     entry.async_create_task(hass, client.async_initialize(), "initialize incident")
-
-    history = IncidentHistory(hass, client)
 
     @callback
     def _async_sync_history(*_args: Any) -> None:

@@ -2,7 +2,7 @@
 
 import asyncio
 from collections import Counter, defaultdict
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import datetime
 import logging
 from typing import Any
@@ -17,11 +17,13 @@ from homeassistant.components.recorder.statistics import (
 )
 from homeassistant.const import UnitOfTime
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import DurationConverter
 
 from .const import (
+    DEPLOYMENT_WINDOW,
     DOMAIN,
     HISTORY_FINAL_AGE,
     HISTORY_PER_PAGE,
@@ -29,6 +31,7 @@ from .const import (
     HISTORY_RETRY_DELAY,
     INCIDENT_TYPE_ALERT,
     MAX_RESPONSE_MINUTES,
+    SIGNAL_HISTORY,
 )
 from .coordinator import FireServiceRotaClient
 
@@ -41,17 +44,89 @@ STATISTICS: dict[str, tuple[str, str | None, str | None]] = {
     "incidents": ("FireServiceRota incidents", None, None),
     "acknowledged": ("FireServiceRota acknowledged incidents", None, None),
     "assigned": ("FireServiceRota assigned incidents", None, None),
-    "response_minutes": (
+    "response_time": (
         "FireServiceRota response time",
-        UnitOfTime.MINUTES,
+        UnitOfTime.HOURS,
         DurationConverter.UNIT_CLASS,
     ),
 }
+
+# Stored incidents without all these keys are fetched again.
+INCIDENT_KEYS = {
+    "created_at",
+    "alerted",
+    "acknowledged",
+    "assigned",
+    "minutes",
+    "available",
+    "on_duty",
+    "status",
+    "reported_status",
+    "final",
+}
+
+# Response statuses that are not declining or ignoring the alert.
+NOT_DECLINED_STATUSES = {"acknowledged", "not_sent"}
 
 
 def statistic_id(user_id: int, key: str) -> str:
     """Return the statistic id of a user's incident statistic."""
     return f"{DOMAIN}:user_{user_id}_{key}"
+
+
+def is_real_deployment(incident: Mapping[str, Any]) -> bool:
+    """Return if the user went out on the incident."""
+    return incident["assigned"] or incident["reported_status"] == "dispatched"
+
+
+def is_virtual_deployment(incident: Mapping[str, Any]) -> bool:
+    """Return if the user should have come by availability, but didn't."""
+    if not (incident["available"] or incident["on_duty"]):
+        return False
+    return (
+        incident["status"] not in NOT_DECLINED_STATUSES
+        or incident["reported_status"] == "no_show"
+    )
+
+
+def deployment_stats(
+    incidents: Iterable[Mapping[str, Any]], now: datetime
+) -> dict[str, int] | None:
+    """Return the deployment percentage as used for the fair deployment proposal.
+
+    (real + virtual deployments) / alarms, over the current calendar year or
+    since the last DEPLOYMENT_WINDOW deployments, whichever is shorter.
+    """
+    year_start = dt_util.start_of_local_day(now).replace(month=1, day=1)
+    alarms = sorted(
+        (
+            incident
+            for incident in incidents
+            if incident["alerted"]
+            and dt_util.parse_datetime(incident["created_at"]) >= year_start
+        ),
+        key=lambda incident: dt_util.parse_datetime(incident["created_at"]),
+        reverse=True,
+    )
+
+    count = real = virtual = 0
+    for incident in alarms:
+        if real + virtual >= DEPLOYMENT_WINDOW:
+            break
+        count += 1
+        if is_real_deployment(incident):
+            real += 1
+        elif is_virtual_deployment(incident):
+            virtual += 1
+
+    if not count:
+        return None
+    return {
+        "percentage": round(100 * (real + virtual) / count),
+        "alarms": count,
+        "real_deployments": real,
+        "virtual_deployments": virtual,
+    }
 
 
 def summarize_incident(
@@ -86,6 +161,10 @@ def summarize_incident(
         "acknowledged": response.get("status") == "acknowledged",
         "assigned": assigned,
         "minutes": minutes,
+        "available": bool(response.get("available_at_incident_creation")),
+        "on_duty": bool(response.get("on_duty")),
+        "status": response.get("status"),
+        "reported_status": response.get("reported_status"),
         # Without an end time the response can still change.
         "final": end_time is not None or now - created >= HISTORY_FINAL_AGE,
     }
@@ -121,6 +200,18 @@ class IncidentHistory:
             if await self._async_fetch(user_id):
                 await self._store.async_save({"incidents": self._incidents})
             self._async_import(user_id)
+            async_dispatcher_send(
+                self._hass, SIGNAL_HISTORY.format(self._client.entry_id)
+            )
+
+    @property
+    def incidents(self) -> list[dict[str, Any]]:
+        """Return the stored incidents that have all details."""
+        return [
+            incident
+            for incident in (self._incidents or {}).values()
+            if incident.keys() >= INCIDENT_KEYS
+        ]
 
     async def _async_fetch(self, user_id: int) -> bool:
         """Fetch incidents that are new or not final, return if any changed."""
@@ -155,11 +246,11 @@ class IncidentHistory:
                 if incident.get("type") != INCIDENT_TYPE_ALERT:
                     continue
                 key = str(incident["id"])
-                # Incidents stored before "alerted" existed are fetched again.
+                # Incidents stored by an older version are fetched again.
                 if (
                     (stored := self._incidents.get(key))
                     and stored["final"]
-                    and "alerted" in stored
+                    and stored.keys() >= INCIDENT_KEYS
                 ):
                     continue
 
@@ -216,14 +307,15 @@ class IncidentHistory:
             hour["incidents"] += 1
             hour["acknowledged"] += incident["acknowledged"]
             hour["assigned"] += incident["assigned"]
-            hour["response_minutes"] += incident["minutes"]
+            hour["response_time"] += incident["minutes"]
 
         for key, (name, unit, unit_class) in STATISTICS.items():
             total = 0
             statistics: list[StatisticData] = []
             for start in sorted(hours):
                 total += hours[start][key]
-                statistics.append(StatisticData(start=start, state=total, sum=total))
+                value = round(total / 60, 2) if unit == UnitOfTime.HOURS else total
+                statistics.append(StatisticData(start=start, state=value, sum=value))
 
             async_add_external_statistics(
                 self._hass,
