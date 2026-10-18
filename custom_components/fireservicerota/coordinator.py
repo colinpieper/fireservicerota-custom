@@ -224,6 +224,8 @@ class FireServiceRotaClient:
         self.incident: dict[str, Any] | None = None
         self.active = False
         self.response: dict[str, Any] | None = None
+        # The responses of all alerted users to the last incident.
+        self.responses: list[dict[str, Any]] = []
         self.system_assigned_skill_ids: list[int] | None = None
         self.trigger: str | None = None
         self.response_deadline: datetime | None = None
@@ -497,6 +499,9 @@ class FireServiceRotaClient:
                 key: value for key, value in data.items() if key not in DETAIL_ONLY_KEYS
             },
         }
+
+        if "incident_responses" in data:
+            self.responses = data["incident_responses"] or []
 
         if (user_id := self.fsr.user_id) is not None:
             self.response = next(

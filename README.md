@@ -42,12 +42,29 @@ On first start the integration fetches all incidents the API returns. That takes
 
 ### Deployment percentage
 
-`sensor.deployment_percentage` estimates the deployment percentage (*uitrukpercentage*) of the [fair deployment proposal](https://help.fireservicerota.com/nl/article/hoe-werkt-het-nieuwe-eerlijk-inzetvoorstel). The API doesn't provide it, so it is calculated from the incident history: (real + virtual deployments) / alarms, over the current calendar year or since the last 10 deployments, whichever is shorter.
+`sensor.deployment_percentage_day` and `sensor.deployment_percentage_evening_night_weekend` estimate the deployment percentage (*uitrukpercentage*) of the [fair deployment proposal](https://help.fireservicerota.com/nl/article/hoe-werkt-het-nieuwe-eerlijk-inzetvoorstel). There is one per duty schedule, because the schedules have independent percentages:
+
+- Day: weekdays from 6:00 until 18:00.
+- Evening, night and weekend: all other times.
+
+An incident counts for the schedule it started in. The API doesn't provide the percentage, so it is calculated from the incident history: (real + virtual deployments) / alarms, over the current calendar year or since the last 10 deployments, whichever is shorter.
 
 - Real deployment: you were assigned, or your reported status is `dispatched`.
 - Virtual deployment: you were available (`available_at_incident_creation`) or on duty at the alarm, but rejected or didn't respond, or acknowledged and didn't show up (`no_show`).
 
 Attributes: `alarms`, `real_deployments`, `virtual_deployments`. It is updated after every sync of the incident history.
+
+#### Colleagues and the seat ranking
+
+Select colleagues you compete with for a seat (for example other aspirants) under the integration's **Configure**. They are listed from the responses in your incident history. For each colleague you get the same two sensors, for example `sensor.deployment_percentage_mark_day`.
+
+`sensor.aspirant_ranking` ranks you and the colleagues during an active incident, like the fair deployment proposal:
+
+1. Those who acknowledged, then those who can still respond. Rejected or expired responses are left out.
+2. Priority group at the alarm: on duty (`on_duty`), available in a paraat team, available, not available.
+3. Lowest deployment percentage of the incident's schedule.
+
+Its state is your position among those who acknowledged, so `1` means you would get the seat. Attributes: `candidates` (`name`, `status`, `group`, `percentage` in rank order), `schedule`, `incident_id`. The proposal fills seats with percentages per function, which the API doesn't provide, so this is an estimate. The actual assignment shows in `binary_sensor.incident_assigned`.
 
 The incident's `state` (`alerting`, `alerted`, `finished`, `failed`) is about alerting the responders. It is usually `finished` within seconds, while the incident is still ongoing. The incident has ended once it has an `end_time`.
 

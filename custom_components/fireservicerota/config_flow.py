@@ -6,10 +6,22 @@ from typing import Any, override
 from pyfireservicerota import FireServiceRota, InvalidAuthError
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigEntryState,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlowWithReload,
+)
 from homeassistant.const import CONF_PASSWORD, CONF_TOKEN, CONF_URL, CONF_USERNAME
+from homeassistant.core import callback
+from homeassistant.helpers.selector import (
+    SelectOptionDict,
+    SelectSelector,
+    SelectSelectorConfig,
+)
 
-from .const import DOMAIN, URL_LIST
+from .const import CONF_COLLEAGUES, DOMAIN, URL_LIST
 
 DATA_SCHEMA = vol.Schema(
     {
@@ -24,6 +36,12 @@ class FireServiceRotaFlowHandler(ConfigFlow, domain=DOMAIN):
     """Handle a FireServiceRota config flow."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlowHandler:
+        """Return the options flow."""
+        return OptionsFlowHandler()
 
     def __init__(self) -> None:
         """Initialize config flow."""
@@ -134,3 +152,56 @@ class FireServiceRotaFlowHandler(ConfigFlow, domain=DOMAIN):
             return self._show_setup_form(step_id="reauth_confirm")
 
         return await self._validate_and_create_entry(user_input, "reauth_confirm")
+
+
+class OptionsFlowHandler(OptionsFlowWithReload):
+    """Handle FireServiceRota options."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Select the colleagues to compare deployment percentages with."""
+        if self.config_entry.state is not ConfigEntryState.LOADED:
+            return self.async_abort(reason="not_loaded")
+
+        client = self.config_entry.runtime_data.client
+        current: dict[str, str] = self.config_entry.options.get(CONF_COLLEAGUES, {})
+        users = {
+            str(user_id): name
+            for user_id, name in self.config_entry.runtime_data.history.known_users.items()
+            if user_id != client.fsr.user_id
+        }
+        # Keep selected colleagues that are no longer in the history.
+        users = {**current, **users}
+
+        if user_input is not None:
+            return self.async_create_entry(
+                data={
+                    CONF_COLLEAGUES: {
+                        user_id: users[user_id]
+                        for user_id in user_input[CONF_COLLEAGUES]
+                        if user_id in users
+                    }
+                }
+            )
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_COLLEAGUES, default=list(current)
+                    ): SelectSelector(
+                        SelectSelectorConfig(
+                            options=[
+                                SelectOptionDict(value=user_id, label=name)
+                                for user_id, name in sorted(
+                                    users.items(), key=lambda user: user[1]
+                                )
+                            ],
+                            multiple=True,
+                        )
+                    )
+                }
+            ),
+        )
