@@ -67,8 +67,11 @@ def summarize_incident(
             for response in incident.get("incident_responses") or []
             if response.get("user_id") == user_id
         ),
-        {},
+        None,
     )
+    # Users without a response were not alerted, e.g. before they joined.
+    alerted = response is not None
+    response = response or {}
     assigned = bool(response.get("assigned_skill_ids"))
     end_time = dt_util.parse_datetime(incident.get("end_time") or "")
 
@@ -79,6 +82,7 @@ def summarize_incident(
 
     return {
         "created_at": incident["created_at"],
+        "alerted": alerted,
         "acknowledged": response.get("status") == "acknowledged",
         "assigned": assigned,
         "minutes": minutes,
@@ -151,7 +155,12 @@ class IncidentHistory:
                 if incident.get("type") != INCIDENT_TYPE_ALERT:
                     continue
                 key = str(incident["id"])
-                if (stored := self._incidents.get(key)) and stored["final"]:
+                # Incidents stored before "alerted" existed are fetched again.
+                if (
+                    (stored := self._incidents.get(key))
+                    and stored["final"]
+                    and "alerted" in stored
+                ):
                     continue
 
                 details = await self._client.update_call(
@@ -199,7 +208,11 @@ class IncidentHistory:
         hours: defaultdict[datetime, Counter[str]] = defaultdict(Counter)
         for incident in self._incidents.values():
             created = dt_util.as_utc(dt_util.parse_datetime(incident["created_at"]))
+            # Keep a row for every incident, so rows imported before can't
+            # keep a sum that is no longer valid.
             hour = hours[created.replace(minute=0, second=0, microsecond=0)]
+            if not incident.get("alerted", True):
+                continue
             hour["incidents"] += 1
             hour["acknowledged"] += incident["acknowledged"]
             hour["assigned"] += incident["assigned"]

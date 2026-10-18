@@ -33,7 +33,7 @@ The integration keeps long-term statistics of all your incident alerts. For dash
 
 | Statistic id | Value |
 |---|---|
-| `fireservicerota:user_<user id>_incidents` | Incident alerts |
+| `fireservicerota:user_<user id>_incidents` | Incident alerts you were alerted for (that have a response of yours, so not those from before you joined) |
 | `fireservicerota:user_<user id>_acknowledged` | Alerts you acknowledged |
 | `fireservicerota:user_<user id>_assigned` | Alerts you were assigned to |
 | `fireservicerota:user_<user id>_response_minutes` | Minutes from alert to `end_time` of assigned incidents (at most 24 h each) |

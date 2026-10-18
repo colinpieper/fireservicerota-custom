@@ -94,6 +94,7 @@ def test_summarize_incident() -> None:
     )
     assert summarize_incident(assigned, USER_ID, now) == {
         "created_at": assigned["created_at"],
+        "alerted": True,
         "acknowledged": True,
         "assigned": True,
         "minutes": 42,
@@ -119,6 +120,7 @@ def test_summarize_incident() -> None:
 
     open_incident = make_incident(4, created_at=created, status=None)
     summary = summarize_incident(open_incident, USER_ID, now)
+    assert not summary["alerted"]
     assert not summary["acknowledged"]
     assert not summary["final"]
     assert summarize_incident(open_incident, USER_ID, created + timedelta(days=7))[
@@ -135,6 +137,7 @@ async def test_history_statistics(
     """Test the full history is imported as cumulative hourly statistics."""
     first = datetime(2026, 8, 3, 14, 12, tzinfo=dt_util.UTC)
     second = datetime(2026, 9, 20, 2, 40, tzinfo=dt_util.UTC)
+    before = datetime(2026, 2, 10, 8, 5, tzinfo=dt_util.UTC)
     incidents = [
         make_incident(
             3,
@@ -153,6 +156,10 @@ async def test_history_statistics(
             status="acknowledged",
             end_time=first + timedelta(hours=1),
         ),
+        # Before the user joined, without a response of the user.
+        make_incident(
+            4, created_at=before, status=None, end_time=before + timedelta(hours=1)
+        ),
     ]
     # The API returns fewer incidents per page than asked for.
     serve(mock_api, incidents, per_page=2)
@@ -160,17 +167,36 @@ async def test_history_statistics(
     await setup_integration()
     await hass.async_block_till_done(wait_background_tasks=True)
 
-    assert mock_api.get_incidents_page.call_count == 3
+    assert mock_api.get_incidents_page.call_count == 4
+    before_hour = before.replace(minute=0)
     first_hour = first.replace(minute=0)
     second_hour = second.replace(minute=0)
-    assert await get_sums(hass, "incidents") == [(first_hour, 2), (second_hour, 3)]
-    assert await get_sums(hass, "acknowledged") == [(first_hour, 1), (second_hour, 2)]
-    assert await get_sums(hass, "assigned") == [(first_hour, 0), (second_hour, 1)]
+    assert await get_sums(hass, "incidents") == [
+        (before_hour, 0),
+        (first_hour, 2),
+        (second_hour, 3),
+    ]
+    assert await get_sums(hass, "acknowledged") == [
+        (before_hour, 0),
+        (first_hour, 1),
+        (second_hour, 2),
+    ]
+    assert await get_sums(hass, "assigned") == [
+        (before_hour, 0),
+        (first_hour, 0),
+        (second_hour, 1),
+    ]
     assert await get_sums(hass, "response_minutes") == [
+        (before_hour, 0),
         (first_hour, 0),
         (second_hour, 55),
     ]
-    assert {call.args[0] for call in mock_api.get_incident.call_args_list} == {1, 2, 3}
+    assert {call.args[0] for call in mock_api.get_incident.call_args_list} == {
+        1,
+        2,
+        3,
+        4,
+    }
 
 
 async def test_history_incremental(
