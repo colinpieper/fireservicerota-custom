@@ -42,6 +42,17 @@ RESPONSE_CLOSED_ATTEMPTS = 3
 # Only alerts are incidents to respond to; reports are created afterwards.
 INCIDENT_TYPE_ALERT = "incident_alert"
 
+# Actions.
+SERVICE_SET_AVAILABILITY = "set_availability"
+ATTR_CONFIG_ENTRY_ID = "config_entry_id"
+ATTR_START_TIME = "start_time"
+ATTR_END_TIME = "end_time"
+ATTR_AVAILABILITY = "availability"
+ATTR_COMMENTS = "comments"
+AVAILABILITY_AVAILABLE = "available"
+AVAILABILITY_UNAVAILABLE = "unavailable"
+AVAILABILITY_CLEAR = "clear"
+
 # Incident history statistics.
 HISTORY_PER_PAGE = 100
 # The API refuses requests after about 20 within a minute.

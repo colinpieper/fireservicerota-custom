@@ -73,6 +73,55 @@
     },
     "no_active_incident": {
       "message": "There is no active incident to respond to"
+    },
+    "set_availability_failed": {
+      "message": "Failed to set the availability"
+    },
+    "end_before_start": {
+      "message": "The end time must be after the start time"
+    },
+    "config_entry_not_found": {
+      "message": "No loaded FireServiceRota account found"
+    },
+    "config_entry_required": {
+      "message": "More than one FireServiceRota account is configured, select one"
+    }
+  },
+  "selector": {
+    "availability": {
+      "options": {
+        "available": "Available",
+        "unavailable": "Unavailable",
+        "clear": "Clear"
+      }
+    }
+  },
+  "services": {
+    "set_availability": {
+      "name": "Set availability",
+      "description": "Sets your availability for a period, like a schedule exception in the app.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Account",
+          "description": "The FireServiceRota account. Only needed when more than one is configured."
+        },
+        "start_time": {
+          "name": "Start time",
+          "description": "Start of the period. Defaults to now."
+        },
+        "end_time": {
+          "name": "End time",
+          "description": "End of the period."
+        },
+        "availability": {
+          "name": "Availability",
+          "description": "Available, unavailable, or clear the period so your regular schedule applies again."
+        },
+        "comments": {
+          "name": "Comments",
+          "description": "Comments shown with the period."
+        }
+      }
     }
   }
 }

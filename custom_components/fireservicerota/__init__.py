@@ -5,8 +5,10 @@ from typing import Any
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.typing import ConfigType
 
 from .const import DOMAIN, EVENT_ENDED, HISTORY_SYNC_INTERVAL, SIGNAL_EVENT
 from .coordinator import (
@@ -15,6 +17,9 @@ from .coordinator import (
     FireServiceUpdateCoordinator,
 )
 from .history import IncidentHistory
+from .services import async_setup_services
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 PLATFORMS = [
     Platform.BINARY_SENSOR,
@@ -22,6 +27,12 @@ PLATFORMS = [
     Platform.SENSOR,
     Platform.SWITCH,
 ]
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Set up the FireServiceRota actions."""
+    async_setup_services(hass)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: FireServiceConfigEntry) -> bool:

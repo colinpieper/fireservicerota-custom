@@ -25,5 +25,10 @@
         "default": "mdi:fire-truck"
       }
     }
+  },
+  "services": {
+    "set_availability": {
+      "service": "mdi:calendar-clock"
+    }
   }
 }
