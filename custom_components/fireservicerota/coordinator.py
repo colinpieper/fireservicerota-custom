@@ -4,7 +4,7 @@ from collections import deque
 from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
 import logging
-from typing import Any, override
+from typing import TYPE_CHECKING, Any, override
 
 from pyfireservicerota import (
     ExpiredTokenError,
@@ -42,6 +42,9 @@ from .const import (
     SLOW_POLL_INTERVAL,
     WSS_BWRURL,
 )
+
+if TYPE_CHECKING:
+    from .history import IncidentHistory
 
 MIN_TIME_BETWEEN_UPDATES = timedelta(seconds=60)
 
@@ -95,6 +98,7 @@ class FireServiceUpdateCoordinator(DataUpdateCoordinator[dict | None]):
     """Data update coordinator for FireServiceRota."""
 
     config_entry: FireServiceConfigEntry
+    history: IncidentHistory
 
     def __init__(
         self,
@@ -573,6 +577,10 @@ class FireServiceRotaClient:
                 "assigned": bool(assigned_skill_ids),
                 "assigned_skill_ids": assigned_skill_ids,
                 "reported_status": response.get("reported_status"),
+                "available_at_incident_creation": response.get(
+                    "available_at_incident_creation"
+                ),
+                "on_duty": response.get("on_duty"),
             },
         )
 

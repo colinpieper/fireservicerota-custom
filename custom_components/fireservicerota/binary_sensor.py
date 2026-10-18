@@ -163,4 +163,8 @@ class IncidentAssignedBinarySensor(IncidentBinarySensor):
             "suggested_skill_ids": self._client.system_assigned_skill_ids or [],
             "status": response.get("status"),
             "reported_status": response.get("reported_status"),
+            "available_at_incident_creation": response.get(
+                "available_at_incident_creation"
+            ),
+            "on_duty": response.get("on_duty"),
         }
