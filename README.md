@@ -51,6 +51,23 @@ Attributes: `alarms`, `real_deployments`, `virtual_deployments`. It is updated a
 
 The incident's `state` (`alerting`, `alerted`, `finished`, `failed`) is about alerting the responders. It is usually `finished` within seconds, while the incident is still ongoing. The incident has ended once it has an `end_time`.
 
+### Actions
+
+- **`fireservicerota.set_availability`** sets your availability for a period, like a schedule exception in the app. Fields:
+  - `end_time` (required) and `start_time` (defaults to now).
+  - `availability` (required): `available`, `unavailable`, or `clear` to remove exceptions in the period so your regular schedule applies again.
+  - `comments` (optional).
+  - `config_entry_id`, only needed with more than one account.
+
+  The exception is saved even if it causes schedule warnings, and its source is shown as geofencing. `binary_sensor.duty` is refreshed afterwards.
+
+  ```yaml
+  action: fireservicerota.set_availability
+  data:
+    end_time: "{{ now() + timedelta(minutes=15) }}"
+    availability: unavailable
+  ```
+
 ## Installation
 
 ### HACS
