@@ -1,6 +1,7 @@
 {
   "domain": "fireservicerota",
   "name": "FireServiceRota",
+  "after_dependencies": ["recorder"],
   "codeowners": ["@colinpieper"],
   "config_flow": true,
   "documentation": "https://github.com/colinpieper/fireservicerota-custom",
@@ -9,5 +10,5 @@
   "issue_tracker": "https://github.com/colinpieper/fireservicerota-custom/issues",
   "loggers": ["pyfireservicerota"],
   "requirements": ["pyfireservicerota==0.0.49"],
-  "version": "2026.10.1"
+  "version": "2026.10.2"
 }

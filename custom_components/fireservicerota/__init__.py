@@ -1,15 +1,20 @@
 """The FireServiceRota integration."""
 
-from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from typing import Any
 
-from .const import DOMAIN
+from homeassistant.const import Platform
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.event import async_track_time_interval
+
+from .const import DOMAIN, EVENT_ENDED, HISTORY_SYNC_INTERVAL, SIGNAL_EVENT
 from .coordinator import (
     FireServiceConfigEntry,
     FireServiceRotaClient,
     FireServiceUpdateCoordinator,
 )
+from .history import IncidentHistory
 
 PLATFORMS = [
     Platform.BINARY_SENSOR,
@@ -42,6 +47,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: FireServiceConfigEntry) 
 
     # Entities have restored their state, now load the latest incident.
     entry.async_create_task(hass, client.async_initialize(), "initialize incident")
+
+    history = IncidentHistory(hass, client)
+
+    @callback
+    def _async_sync_history(*_args: Any) -> None:
+        entry.async_create_background_task(
+            hass, history.async_sync(), "sync incident history"
+        )
+
+    @callback
+    def _async_on_event(event_type: str, _data: dict[str, Any]) -> None:
+        if event_type == EVENT_ENDED:
+            _async_sync_history()
+
+    entry.async_on_unload(
+        async_dispatcher_connect(
+            hass, SIGNAL_EVENT.format(entry.entry_id), _async_on_event
+        )
+    )
+    entry.async_on_unload(
+        async_track_time_interval(hass, _async_sync_history, HISTORY_SYNC_INTERVAL)
+    )
+    _async_sync_history()
 
     return True
 
