@@ -272,7 +272,12 @@ class AspirantRankingSensor(SensorEntity):
             self._schedule = incident_schedule(created)
             user_ids = {user_id, *self._colleagues}
             now = dt_util.now()
-            incidents = self._history.incidents
+            # Like the proposal at the alarm, without the incident itself.
+            incidents = [
+                incident
+                for incident in self._history.incidents
+                if dt_util.parse_datetime(incident["created_at"]) < created
+            ]
             percentages = {
                 uid: (
                     stats["percentage"]
@@ -288,7 +293,12 @@ class AspirantRankingSensor(SensorEntity):
                 )
                 for uid in user_ids
             }
+            suggested = {
+                assignment.get("user_id")
+                for assignment in self._client.skill_assignments
+                if assignment.get("skill_ids")
+            }
             self._candidates = rank_candidates(
-                self._client.responses, user_ids, percentages
+                self._client.responses, user_ids, percentages, suggested
             )
         self.async_write_ha_state()

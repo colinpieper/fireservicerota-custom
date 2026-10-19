@@ -6,6 +6,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.fireservicerota.const import (
     CONF_COLLEAGUES,
@@ -155,10 +156,12 @@ def test_rank_candidates() -> None:
             group_available_at_incident_creation=True,
         ),
     ]
+    responses[0]["assigned_skill_ids"] = [3]
     ranked = rank_candidates(
         responses,
         {USER_ID, MARK, NICK, 9, 11},
         {USER_ID: 20, MARK: 40, NICK: 0, 9: 0, 11: 90},
+        {11},
     )
 
     # Sanne is in a paraat team, which beats a lower percentage. Piet isn't a
@@ -168,6 +171,13 @@ def test_rank_candidates() -> None:
         ("Colin", "available", 20),
         ("Mark", "available", 40),
         ("Nick", "on_duty", 0),
+    ]
+    # The system suggested Sanne, but Colin was assigned.
+    assert [(c["name"], c["suggested"], c["assigned"]) for c in ranked] == [
+        ("Sanne", True, False),
+        ("Colin", False, True),
+        ("Mark", False, False),
+        ("Nick", False, False),
     ]
 
 
@@ -252,3 +262,69 @@ async def test_colleagues_and_ranking(
         "Nick",
     ]
     assert ranking.attributes["incident_id"] == 3
+
+
+async def test_ranking_without_active_incident(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_api: MagicMock,
+    mock_websocket: MagicMock,
+) -> None:
+    """Test the active incident doesn't count, and suggestions and assignments."""
+    now = dt_util.now()
+    active = incident_with(
+        2,
+        now,
+        [
+            response(
+                USER_ID, "Colin", "acknowledged", available_at_incident_creation=True
+            ),
+            response(
+                MARK,
+                "Mark",
+                "acknowledged",
+                available_at_incident_creation=True,
+                assigned_skill_ids=[3],
+            ),
+        ],
+    )
+    active["incident_skill_assignments"] = [
+        {"user_id": USER_ID, "skill_ids": [3]},
+        {"user_id": NICK, "skill_ids": []},
+    ]
+    # A week ago, at the same time of day: the user went out, Mark didn't.
+    past = incident_with(
+        1,
+        now - timedelta(days=7),
+        [
+            response(USER_ID, "Colin", "acknowledged", assigned_skill_ids=[3]),
+            response(MARK, "Mark", "acknowledged"),
+        ],
+    )
+    # The history already has the active incident.
+    incidents = [past, active]
+    mock_api.get_incidents_page.side_effect = lambda page, _per_page: (
+        [
+            {"id": i["id"], "type": i["type"], "created_at": i["created_at"]}
+            for i in incidents
+        ]
+        if page == 1
+        else []
+    )
+    mock_api.get_incident.side_effect = {i["id"]: i for i in incidents}.get
+    mock_api.get_latest_incident.return_value = active
+
+    config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        config_entry, options={CONF_COLLEAGUES: {str(MARK): "Mark"}}
+    )
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    # With the active incident both would be at 50%.
+    ranking = hass.states.get("sensor.aspirant_ranking")
+    assert ranking.state == "2"
+    assert [
+        (c["name"], c["percentage"], c["suggested"], c["assigned"])
+        for c in ranking.attributes["candidates"]
+    ] == [("Mark", 0, False, True), ("Colin", 100, True, False)]
