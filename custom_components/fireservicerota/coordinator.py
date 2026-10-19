@@ -2,7 +2,7 @@
 
 from collections import deque
 from collections.abc import Callable, Mapping
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import logging
 from typing import TYPE_CHECKING, Any, override
 
@@ -42,6 +42,7 @@ from .const import (
     SLOW_POLL_INTERVAL,
     WSS_BWRURL,
 )
+from .schedule import merge_intervals
 
 if TYPE_CHECKING:
     from .history import IncidentHistory
@@ -417,6 +418,18 @@ class FireServiceRotaClient:
                 translation_domain=DOMAIN,
                 translation_key="set_availability_failed",
             )
+
+    async def async_get_schedule(self, start: date, end: date) -> list[dict[str, Any]]:
+        """Get the user's schedule periods from start to end date."""
+        intervals = await self.update_call(
+            self.fsr.get_schedule, start, end, str(self._hass.config.time_zone)
+        )
+        if intervals is None:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="get_schedule_failed",
+            )
+        return merge_intervals(intervals)
 
     async def async_stop_listener(self) -> None:
         """Stop listener."""

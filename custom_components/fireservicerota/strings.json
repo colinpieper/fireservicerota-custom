@@ -38,6 +38,11 @@
         "name": "Incident assigned"
       }
     },
+    "calendar": {
+      "availability": {
+        "name": "Availability"
+      }
+    },
     "event": {
       "incident": {
         "name": "Incident",
@@ -97,6 +102,9 @@
     },
     "config_entry_required": {
       "message": "More than one FireServiceRota account is configured, select one"
+    },
+    "get_schedule_failed": {
+      "message": "Failed to get the availability schedule"
     }
   },
   "selector": {

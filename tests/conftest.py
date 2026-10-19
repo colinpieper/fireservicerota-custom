@@ -9,6 +9,7 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.fireservicerota.const import DOMAIN
+from custom_components.fireservicerota.schedule import availability, merge_intervals
 from homeassistant.const import CONF_TOKEN, CONF_URL, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
@@ -16,6 +17,49 @@ from homeassistant.util import dt as dt_util
 USERNAME = "my@email.address"
 USER_ID = 42
 NOW = "2026-10-01T10:00:00+00:00"
+
+
+def make_interval(
+    start: str, end: str, available: bool, kind: str = "recurring", **extra: Any
+) -> dict[str, Any]:
+    """Return a combined schedule interval on 1 October 2026 in CEST."""
+    detailed: dict[str, Any] = {"recurring": available, "active": True}
+    if kind == "exception":
+        detailed["exception"] = available
+    return {
+        "start_time": f"2026-10-{start}:00.000+02:00",
+        "end_time": f"2026-10-{end}:00.000+02:00",
+        "available": available,
+        "active": True,
+        "assigned_function_ids": [],
+        "skill_ids": [165] if available else [],
+        "detailed_availability": detailed,
+        "transient": True,
+        **extra,
+    }
+
+
+# The combined schedule as split at day boundaries by the API. At NOW (12:00
+# local) the user is available because of an exception.
+SCHEDULE = [
+    make_interval("01T00:00", "01T08:00", False),
+    make_interval("01T08:00", "01T14:00", True, "exception", comments="Thuis"),
+    make_interval("01T14:00", "01T18:45", False),
+    make_interval("01T18:45", "02T00:00", True),
+    make_interval("02T00:00", "02T06:00", True),
+    make_interval("02T06:00", "03T00:00", False),
+]
+
+
+def make_availability(now: datetime) -> dict[str, Any]:
+    """Return the availability data of the API for the schedule at a time."""
+    periods = merge_intervals(SCHEDULE)
+    return {
+        **availability(periods, now),
+        "schedule": periods,
+        "schedule_start": "2026-10-01",
+        "schedule_end": "2026-10-09",
+    }
 
 
 @pytest.fixture(autouse=True)
@@ -100,12 +144,10 @@ def mock_api() -> Generator[MagicMock]:
     ) as api_class:
         api = api_class.return_value
         api.user_id = USER_ID
-        api.get_availability.return_value = {
-            "available": True,
-            "active": True,
-            "type": "recurring",
-            "skill_ids": [165],
-        }
+        api.get_availability.return_value = make_availability(
+            datetime.fromisoformat(NOW)
+        )
+        api.get_schedule.return_value = SCHEDULE
         api.get_latest_incident.return_value = None
         api.get_incident.return_value = None
         api.get_incidents_page.return_value = []

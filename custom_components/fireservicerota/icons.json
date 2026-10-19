@@ -20,6 +20,11 @@
         }
       }
     },
+    "calendar": {
+      "availability": {
+        "default": "mdi:calendar-account"
+      }
+    },
     "event": {
       "incident": {
         "default": "mdi:fire-truck"

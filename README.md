@@ -15,6 +15,7 @@ Built against Home Assistant 2026.9 and `pyfireservicerota==0.0.49`.
 | New vs update | Decided by the library from an in-memory list, so ongoing incidents show up as `new` again after a restart | Decided from the active incident id |
 | Assignment after the response deadline | Not available | `event.incident` fires `response_closed` with the final assignment |
 | Token refresh failure at setup | Setup fails | Starts a reauth flow |
+| Availability | `binary_sensor.duty` only describes an available period, cut off at midnight | `binary_sensor.duty` describes the current period also while unavailable, with its real end and the next period, and `calendar.availability` shows the whole schedule |
 
 ### New entities
 
@@ -24,8 +25,31 @@ Built against Home Assistant 2026.9 and `pyfireservicerota==0.0.49`.
   - `ended`: when the incident gets an `end_time`, or 24 h after creation without one. Data: `id`, `body`, `state`, `end_time`.
 - **`binary_sensor.incident_assigned`**: on when your response has assigned skills, and `unknown` without a response. Attributes: `incident_id`, `assigned_skill_ids`, `suggested_skill_ids` (from the incident's skill assignments), `status`, `reported_status`, `available_at_incident_creation` (you were available at the alarm), `on_duty`.
 - **`binary_sensor.incident_active`**: on until the incident has ended. Attributes: `incident_id`, `state`.
+- **`calendar.availability`**: an `Available` event for each uninterrupted period you are available, also across midnight and across recurring and exception periods. The description lists the schedule types (`recurring`, `exception`, `standby_duty`) and comments. The next 8 days are fetched with every update; other periods are requested from the API when asked for. Check a period before acting on it:
+
+  ```yaml
+  - action: calendar.get_events
+    target:
+      entity_id: calendar.availability
+    data:
+      start_date_time: "{{ today_at('18:45') }}"
+      end_date_time: "{{ today_at('19:00') }}"
+    response_variable: schedule
+  - condition: template
+    value_template: >
+      {% set ns = namespace(available=false) %}
+      {% for event in schedule['calendar.availability'].events %}
+        {% if as_datetime(event.start) <= today_at('18:45')
+              and as_datetime(event.end) >= today_at('19:00') %}
+          {% set ns.available = true %}
+        {% endif %}
+      {% endfor %}
+      {{ ns.available }}
+  ```
 
 Existing entities: `sensor.incidents` (body of the last incident, with new `state`, `start_time` and `end_time` attributes), `switch.incident_response` and `binary_sensor.duty`.
+
+`binary_sensor.duty` is on while you are available. Its attributes describe the current schedule period, available or not: `start_time`, `end_time`, `available`, `active`, `type`, `assigned_function_ids`, `skill_ids` (and `assigned_function`). Periods the API splits at midnight are merged, so `end_time` is the real end. The next period is in `next_start_time`, `next_end_time`, `next_available` and `next_type`. Without a current period only `available: false` and the next period are set.
 
 ### Incident statistics
 
