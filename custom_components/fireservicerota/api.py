@@ -37,7 +37,11 @@ class FireServiceRotaApi(FireServiceRota):
     def get_schedule(
         self, start: date, end: date, tzstring: str
     ) -> list[dict[str, Any]] | None:
-        """Get the user's combined schedule intervals from start to end date."""
+        """Get the user's combined schedule intervals from start to end date.
+
+        The intervals of the day before are included, so a period that
+        started then isn't cut off at the start date.
+        """
         if not self._user:
             self.get_user()
 
@@ -49,7 +53,9 @@ class FireServiceRotaApi(FireServiceRota):
             endpoint=f"memberships/{membership_id}/combined_schedule",
             log_msg_action="get schedule memberships",
             params={
-                "start_time": datetime.combine(start, time(), tz).isoformat(),
+                "start_time": datetime.combine(
+                    start - timedelta(days=1), time(), tz
+                ).isoformat(),
                 "end_time": datetime.combine(end, time(), tz).isoformat(),
             },
             auth_request=False,
