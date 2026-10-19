@@ -11,7 +11,7 @@ TZ = "Europe/Amsterdam"
 
 
 def test_get_schedule() -> None:
-    """Test the schedule is requested from the start of the local days."""
+    """Test the schedule is requested from the start of the day before."""
     api = FireServiceRotaApi(base_url="www.brandweerrooster.nl", token_info={})
     user = {"id": USER_ID, "memberships": [{"id": 77}]}
 
@@ -20,7 +20,7 @@ def test_get_schedule() -> None:
         patch.object(api, "_request", return_value={"intervals": SCHEDULE}) as request,
     ):
         # Daylight saving time ends on 25 October.
-        assert api.get_schedule(date(2026, 10, 24), date(2026, 10, 26), TZ) == SCHEDULE
+        assert api.get_schedule(date(2026, 10, 25), date(2026, 10, 26), TZ) == SCHEDULE
 
     assert request.call_args.kwargs["endpoint"] == "memberships/77/combined_schedule"
     assert request.call_args.kwargs["params"] == {
