@@ -81,6 +81,10 @@ class ResponseBinarySensor(
                 "skill_ids",
                 "type",
                 "assigned_function",
+                "next_start_time",
+                "next_end_time",
+                "next_available",
+                "next_type",
             )
             if key in data
         }

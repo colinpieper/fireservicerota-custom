@@ -1,11 +1,16 @@
 """Additional FireServiceRota API calls not provided by pyfireservicerota."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from pyfireservicerota import FireServiceRota
 
 from .const import INCIDENT_TYPE_ALERT
+from .schedule import availability, merge_intervals
+
+# Days of the combined schedule fetched on every update, starting today.
+SCHEDULE_DAYS = 8
 
 
 class FireServiceRotaApi(FireServiceRota):
@@ -28,6 +33,54 @@ class FireServiceRotaApi(FireServiceRota):
             auth_request=False,
         )
         return response if isinstance(response, dict) else None
+
+    def get_schedule(
+        self, start: date, end: date, tzstring: str
+    ) -> list[dict[str, Any]] | None:
+        """Get the user's combined schedule intervals from start to end date."""
+        if not self._user:
+            self.get_user()
+
+        tz = ZoneInfo(tzstring)
+        membership_id = self._user["memberships"][0]["id"]
+        # The API requires both times to align with the start of a day.
+        response = self._request(
+            "GET",
+            endpoint=f"memberships/{membership_id}/combined_schedule",
+            log_msg_action="get schedule memberships",
+            params={
+                "start_time": datetime.combine(start, time(), tz).isoformat(),
+                "end_time": datetime.combine(end, time(), tz).isoformat(),
+            },
+            auth_request=False,
+        )
+        if not isinstance(response, dict):
+            return None
+        return response.get("intervals") or []
+
+    def get_availability(self, tzstring: str) -> dict[str, Any]:
+        """Get the current availability period and the upcoming schedule.
+
+        Unlike the library, this also returns unavailable periods, the next
+        period and the schedule periods from today.
+        """
+        today = datetime.now(ZoneInfo(tzstring)).date()
+        schedule_end = today + timedelta(days=SCHEDULE_DAYS)
+        intervals = self.get_schedule(today, schedule_end, tzstring)
+        if intervals is None:
+            return {"available": False}
+
+        periods = merge_intervals(intervals)
+        data = availability(periods, datetime.now(UTC))
+        if data["available"] and data.get("assigned_function_ids"):
+            for function_id in data["assigned_function_ids"]:
+                data["assigned_function"] = self.get_standby_function(function_id)[
+                    "name"
+                ]
+        data["schedule"] = periods
+        data["schedule_start"] = today.isoformat()
+        data["schedule_end"] = schedule_end.isoformat()
+        return data
 
     def set_availability(
         self,
