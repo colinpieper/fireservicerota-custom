@@ -227,6 +227,8 @@ class FireServiceRotaClient:
         self.response: dict[str, Any] | None = None
         # The responses of all alerted users to the last incident.
         self.responses: list[dict[str, Any]] = []
+        # The seats the system suggested for the last incident, per user.
+        self.skill_assignments: list[dict[str, Any]] = []
         self.system_assigned_skill_ids: list[int] | None = None
         self.trigger: str | None = None
         self.response_deadline: datetime | None = None
@@ -341,6 +343,7 @@ class FireServiceRotaClient:
             self.incident = None
             self.response = None
             self.system_assigned_skill_ids = None
+            self.skill_assignments = []
             self.trigger = None
             self._incident_seen_at = dt_util.utcnow()
 
@@ -471,6 +474,7 @@ class FireServiceRotaClient:
             self.incident = {}
             self.response = None
             self.system_assigned_skill_ids = None
+            self.skill_assignments = []
             self.response_deadline = None
             self._incident_seen_at = dt_util.utcnow()
             self._response_closed_sent = False
@@ -515,6 +519,8 @@ class FireServiceRotaClient:
 
         if "incident_responses" in data:
             self.responses = data["incident_responses"] or []
+        if "incident_skill_assignments" in data:
+            self.skill_assignments = data["incident_skill_assignments"] or []
 
         if (user_id := self.fsr.user_id) is not None:
             self.response = next(

@@ -88,7 +88,7 @@ Select colleagues you compete with for a seat (for example other aspirants) unde
 2. Priority group at the alarm: on duty (`on_duty`), available in a paraat team, available, not available.
 3. Lowest deployment percentage of the incident's schedule.
 
-Its state is your position among those who acknowledged, so `1` means you would get the seat. Attributes: `candidates` (`name`, `status`, `group`, `percentage` in rank order), `schedule`, `incident_id`. The proposal fills seats with percentages per function, which the API doesn't provide, so this is an estimate. The actual assignment shows in `binary_sensor.incident_assigned`.
+Its state is your position among those who acknowledged, so `1` means you would get the seat. Attributes: `candidates` (`name`, `status`, `group`, `percentage`, `suggested`, `assigned` in rank order), `schedule`, `incident_id`. The percentages leave out the active incident itself. The proposal fills seats with percentages per function, which the API doesn't provide, so this is an estimate. `suggested` tells if the system's proposal gave the candidate a seat, `assigned` if they actually got one, so you can compare the estimate with both.
 
 The incident's `state` (`alerting`, `alerted`, `finished`, `failed`) is about alerting the responders. It is usually `finished` within seconds, while the incident is still ongoing. The incident has ended once it has an `end_time`.
 

@@ -182,12 +182,14 @@ def rank_candidates(
     responses: Iterable[Mapping[str, Any]],
     user_ids: Collection[int],
     percentages: Mapping[int, int | None],
+    suggested: Collection[int] = (),
 ) -> list[dict[str, Any]]:
     """Rank users' responses to an incident for a seat, best candidate first.
 
     Like the fair deployment proposal: users who acknowledged before users who
     can still respond, then by priority group, then by lowest deployment
-    percentage. Users who declined are left out.
+    percentage. Users who declined are left out. Each candidate tells if the
+    system suggested them for a seat and if they were assigned one.
     """
     candidates = []
     for response in responses:
@@ -201,6 +203,8 @@ def rank_candidates(
                 "status": response["status"],
                 "group": priority_group(summarize_response(response)),
                 "percentage": percentages.get(user_id),
+                "suggested": user_id in suggested,
+                "assigned": bool(response.get("assigned_skill_ids")),
             }
         )
     candidates.sort(
