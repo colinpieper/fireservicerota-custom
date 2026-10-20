@@ -208,13 +208,15 @@ async def test_colleagues_and_ranking(
             ],
         ),
     ]
-    mock_api.get_incidents_page.side_effect = lambda page, _per_page: (
-        [
-            {"id": i["id"], "type": i["type"], "created_at": i["created_at"]}
-            for i in past
-        ]
-        if page == 1
-        else []
+    mock_api.get_incidents_page.side_effect = (
+        lambda page, _per_page, _updated_after=None: (
+            [
+                {"id": i["id"], "type": i["type"], "created_at": i["created_at"]}
+                for i in past
+            ]
+            if page == 1
+            else []
+        )
     )
     mock_api.get_incident.side_effect = {i["id"]: i for i in past}.get
 
@@ -303,13 +305,15 @@ async def test_ranking_without_active_incident(
     )
     # The history already has the active incident.
     incidents = [past, active]
-    mock_api.get_incidents_page.side_effect = lambda page, _per_page: (
-        [
-            {"id": i["id"], "type": i["type"], "created_at": i["created_at"]}
-            for i in incidents
-        ]
-        if page == 1
-        else []
+    mock_api.get_incidents_page.side_effect = (
+        lambda page, _per_page, _updated_after=None: (
+            [
+                {"id": i["id"], "type": i["type"], "created_at": i["created_at"]}
+                for i in incidents
+            ]
+            if page == 1
+            else []
+        )
     )
     mock_api.get_incident.side_effect = {i["id"]: i for i in incidents}.get
     mock_api.get_latest_incident.return_value = active

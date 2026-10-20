@@ -2,7 +2,7 @@
 
 import asyncio
 from collections import Counter, defaultdict
-from collections.abc import Collection, Iterable, Mapping
+from collections.abc import AsyncIterator, Collection, Iterable, Mapping
 from datetime import datetime
 import logging
 from typing import Any
@@ -31,6 +31,7 @@ from .const import (
     HISTORY_PER_PAGE,
     HISTORY_REQUEST_DELAY,
     HISTORY_RETRY_DELAY,
+    HISTORY_UPDATED_MARGIN,
     INCIDENT_TYPE_ALERT,
     MAX_RESPONSE_MINUTES,
     SCHEDULE_DAY,
@@ -67,6 +68,7 @@ INCIDENT_KEYS = {
     "status",
     "reported_status",
     "responses",
+    "approval_status",
     "final",
 }
 
@@ -116,7 +118,11 @@ def priority_group(response: Mapping[str, Any]) -> str:
 
 
 def is_real_deployment(incident: Mapping[str, Any]) -> bool:
-    """Return if the user went out on the incident."""
+    """Return if the user went out on the incident.
+
+    Users that went out without being assigned a seat, e.g. added afterwards
+    by editing the incident, are reported as dispatched.
+    """
     return incident["assigned"] or incident["reported_status"] == "dispatched"
 
 
@@ -239,7 +245,9 @@ def summarize_incident(
     end_time = dt_util.parse_datetime(incident.get("end_time") or "")
 
     minutes = 0
-    if assigned and end_time is not None:
+    if (
+        assigned or response.get("reported_status") == "dispatched"
+    ) and end_time is not None:
         minutes = round((end_time - created).total_seconds() / 60)
         minutes = min(max(minutes, 0), MAX_RESPONSE_MINUTES)
 
@@ -258,8 +266,10 @@ def summarize_incident(
             for response in incident.get("incident_responses") or []
             if response.get("user_id") is not None
         },
-        # Without an end time the response can still change.
-        "final": end_time is not None or now - created >= HISTORY_FINAL_AGE,
+        "approval_status": incident.get("approval_status"),
+        # Incidents are edited after they ended, e.g. who went out.
+        "final": incident.get("approval_status") == "approved"
+        or now - created >= HISTORY_FINAL_AGE,
     }
 
 
@@ -274,6 +284,7 @@ class IncidentHistory:
             hass, STORAGE_VERSION, f"{DOMAIN}.history.{client.entry_id}"
         )
         self._incidents: dict[str, dict[str, Any]] | None = None
+        self._synced_at: datetime | None = None
         self._lock = asyncio.Lock()
 
     async def async_sync(self, *_args: Any) -> None:
@@ -282,6 +293,7 @@ class IncidentHistory:
             if self._incidents is None:
                 stored = await self._store.async_load() or {}
                 self._incidents = stored.get("incidents", {})
+                self._synced_at = dt_util.parse_datetime(stored.get("synced_at") or "")
 
             fsr = self._client.fsr
             if fsr.user_id is None:
@@ -291,7 +303,12 @@ class IncidentHistory:
                 return
 
             if await self._async_fetch(user_id):
-                await self._store.async_save({"incidents": self._incidents})
+                await self._store.async_save(
+                    {
+                        "incidents": self._incidents,
+                        "synced_at": self._synced_at and self._synced_at.isoformat(),
+                    }
+                )
             self._async_import(user_id)
             async_dispatcher_send(
                 self._hass, SIGNAL_HISTORY.format(self._client.entry_id)
@@ -319,24 +336,24 @@ class IncidentHistory:
                     users[int(user_id)] = response["name"]
         return users
 
-    async def _async_fetch(self, user_id: int) -> bool:
-        """Fetch incidents that are new or not final, return if any changed."""
-        assert self._incidents is not None
+    async def _async_list(
+        self, updated_after: datetime | None = None
+    ) -> AsyncIterator[list[dict[str, Any]] | None]:
+        """Yield the pages of listed incidents, None if a page failed."""
         fsr = self._client.fsr
         seen: set[int] = set()
-        changed = 0
         page = 1
-        stopped = False
 
-        while not stopped:
+        while True:
             incidents = await self._client.update_call(
-                fsr.get_incidents_page, page, HISTORY_PER_PAGE
+                fsr.get_incidents_page, page, HISTORY_PER_PAGE, updated_after
             )
             if incidents is None:
                 _LOGGER.warning("Could not fetch page %s of the incident history", page)
-                break
+                yield None
+                return
             if not incidents:
-                break
+                return
             new = [incident for incident in incidents if incident.get("id") not in seen]
             if not new:
                 _LOGGER.warning(
@@ -345,8 +362,45 @@ class IncidentHistory:
                     page,
                     len(seen),
                 )
-                break
+                return
             seen.update(incident["id"] for incident in new)
+            yield new
+
+            # The API may return fewer incidents per page than asked for, so
+            # only an empty page ends the history.
+            page += 1
+            await asyncio.sleep(HISTORY_REQUEST_DELAY)
+
+    async def _async_fetch(self, user_id: int) -> bool:
+        """Fetch incidents that are new, not final or updated.
+
+        Return if the history needs saving: any changed or the sync completed.
+        """
+        assert self._incidents is not None
+        fsr = self._client.fsr
+        started = dt_util.utcnow()
+        complete = True
+        changed = 0
+
+        # Final incidents are only fetched again when edited since the last sync.
+        updated: set[int] = set()
+        if self._synced_at is not None:
+            async for incidents in self._async_list(
+                self._synced_at - HISTORY_UPDATED_MARGIN
+            ):
+                if incidents is None:
+                    complete = False
+                    break
+                updated.update(incident["id"] for incident in incidents)
+            await asyncio.sleep(HISTORY_REQUEST_DELAY)
+
+        listed = 0
+        stopped = False
+        async for new in self._async_list():
+            if new is None:
+                complete = False
+                break
+            listed += len(new)
 
             for incident in new:
                 if incident.get("type") != INCIDENT_TYPE_ALERT:
@@ -357,6 +411,7 @@ class IncidentHistory:
                     (stored := self._incidents.get(key))
                     and stored["final"]
                     and stored.keys() >= INCIDENT_KEYS
+                    and incident["id"] not in updated
                 ):
                     continue
 
@@ -382,19 +437,21 @@ class IncidentHistory:
                     self._incidents[key] = summary
                     changed += 1
                 await asyncio.sleep(HISTORY_REQUEST_DELAY)
+            if stopped:
+                complete = False
+                break
 
-            # The API may return fewer incidents per page than asked for, so
-            # only an empty page ends the history.
-            page += 1
-            await asyncio.sleep(HISTORY_REQUEST_DELAY)
-
+        if complete:
+            self._synced_at = started
         _LOGGER.debug(
-            "Synced incident history: %s incidents listed, %s changed, %s stored",
-            len(seen),
+            "Synced incident history: %s incidents listed, %s updated, %s changed, "
+            "%s stored",
+            listed,
+            len(updated),
             changed,
             len(self._incidents),
         )
-        return changed > 0
+        return changed > 0 or complete
 
     def _async_import(self, user_id: int) -> None:
         """Import the cumulative hourly statistics of all stored incidents."""
@@ -412,7 +469,7 @@ class IncidentHistory:
                 continue
             hour["incidents"] += 1
             hour["acknowledged"] += incident["acknowledged"]
-            hour["assigned"] += incident["assigned"]
+            hour["assigned"] += is_real_deployment(incident)
             hour["response_time"] += incident["minutes"]
 
         for key, (name, unit, unit_class) in STATISTICS.items():
