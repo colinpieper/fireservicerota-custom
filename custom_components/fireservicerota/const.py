@@ -59,8 +59,11 @@ HISTORY_PER_PAGE = 100
 HISTORY_REQUEST_DELAY = 4
 HISTORY_RETRY_DELAY = 60
 HISTORY_SYNC_INTERVAL = timedelta(days=1)
-# An incident without an end time no longer changes after this.
-HISTORY_FINAL_AGE = timedelta(days=7)
+# An incident is no longer fetched again after this, or once its report is
+# approved, unless the API lists it as updated since the previous sync.
+HISTORY_FINAL_AGE = timedelta(days=30)
+# Margin on the previous sync time when asking for updated incidents.
+HISTORY_UPDATED_MARGIN = timedelta(minutes=10)
 MAX_RESPONSE_MINUTES = 1440
 # The deployment percentage covers at most this many recent deployments.
 DEPLOYMENT_WINDOW = 10

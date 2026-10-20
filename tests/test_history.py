@@ -49,13 +49,24 @@ def list_item(incident: dict[str, Any]) -> dict[str, Any]:
     return {key: incident[key] for key in ("id", "type", "created_at")}
 
 
-def serve(mock_api: MagicMock, incidents: list[dict[str, Any]], per_page: int = 100):
-    """Serve the incidents from the mocked API in pages."""
+def serve(
+    mock_api: MagicMock,
+    incidents: list[dict[str, Any]],
+    per_page: int = 100,
+    updated: list[dict[str, Any]] | None = None,
+):
+    """Serve the incidents from the mocked API in pages.
+
+    The updated incidents are listed when asking for updated incidents.
+    """
     by_id = {incident["id"]: incident for incident in incidents}
 
-    def _page(page: int, _per_page: int) -> list[dict[str, Any]]:
+    def _page(
+        page: int, _per_page: int, updated_after: datetime | None = None
+    ) -> list[dict[str, Any]]:
+        listed = incidents if updated_after is None else updated or []
         start = (page - 1) * per_page
-        return [list_item(incident) for incident in incidents[start : start + per_page]]
+        return [list_item(incident) for incident in listed[start : start + per_page]]
 
     mock_api.get_incidents_page.side_effect = _page
     mock_api.get_incident.side_effect = by_id.get
@@ -124,8 +135,12 @@ def test_summarize_incident() -> None:
         "on_duty": False,
         "status": "acknowledged",
         "reported_status": "dispatched",
-        "final": True,
+        "approval_status": None,
+        # Ended, but can still be edited.
+        "final": False,
     }
+    assigned["approval_status"] = "approved"
+    assert summarize_incident(assigned, USER_ID, now)["final"]
 
     rejected = make_incident(
         2, created_at=created, status="rejected", end_time=created + timedelta(hours=1)
@@ -149,9 +164,18 @@ def test_summarize_incident() -> None:
     assert not summary["alerted"]
     assert not summary["acknowledged"]
     assert not summary["final"]
-    assert summarize_incident(open_incident, USER_ID, created + timedelta(days=7))[
+    assert summarize_incident(open_incident, USER_ID, created + timedelta(days=30))[
         "final"
     ]
+
+    # Went out without a seat, added afterwards by editing the incident.
+    dispatched = make_incident(
+        5, created_at=created, status="rejected", end_time=created + timedelta(hours=1)
+    )
+    dispatched["incident_responses"][1]["reported_status"] = "dispatched"
+    summary = summarize_incident(dispatched, USER_ID, now)
+    assert not summary["assigned"]
+    assert summary["minutes"] == 60
 
 
 def summary(
@@ -175,6 +199,7 @@ def summary(
         "on_duty": on_duty,
         "status": status,
         "reported_status": reported_status,
+        "approval_status": "approved",
         "final": True,
     }
 
@@ -328,6 +353,7 @@ async def test_history_incremental(
         status="acknowledged",
         end_time=created,
     )
+    finished["approval_status"] = "approved"
     open_incident = make_incident(
         2, created_at=created, status="acknowledged", assigned_skill_ids=[165]
     )
@@ -348,6 +374,59 @@ async def test_history_incremental(
     assert [call.args[0] for call in mock_api.get_incident.call_args_list] == [2]
     assert (await get_sums(hass, "response_time"))[-1][1] == 0.5
     assert (await get_sums(hass, "incidents"))[-1][1] == 2
+
+
+async def test_history_edited(
+    recorder_mock: Any,
+    hass: HomeAssistant,
+    mock_api: MagicMock,
+    setup_integration: Callable[[], Any],
+) -> None:
+    """Test an incident edited after it became final is fetched again."""
+    created = dt_util.utcnow() - timedelta(days=40)
+    incident = make_incident(
+        1,
+        created_at=created,
+        status="acknowledged",
+        end_time=created + timedelta(hours=1),
+    )
+    updated: list[dict[str, Any]] = []
+    serve(mock_api, [incident], updated=updated)
+
+    config_entry = await setup_integration()
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert (await get_sums(hass, "assigned"))[-1][1] == 0
+    # Nothing to ask for updates since without a previous sync.
+    assert all(
+        call.args[2] is None for call in mock_api.get_incidents_page.call_args_list
+    )
+
+    async def sync() -> None:
+        mock_api.get_incident.reset_mock()
+        mock_api.get_incidents_page.reset_mock()
+        async_dispatcher_send(
+            hass, SIGNAL_EVENT.format(config_entry.entry_id), EVENT_ENDED, {"id": 2}
+        )
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    # Final and not updated, so not fetched again.
+    await sync()
+    assert mock_api.get_incident.call_count == 0
+    updated_after = mock_api.get_incidents_page.call_args_list[0].args[2]
+    assert dt_util.utcnow() - updated_after < timedelta(minutes=11)
+
+    # Edited: the user went out as well, without an assigned seat.
+    incident["incident_responses"][1]["reported_status"] = "dispatched"
+    updated.append(incident)
+    await sync()
+    assert [call.args[0] for call in mock_api.get_incident.call_args_list] == [1]
+    assert (await get_sums(hass, "assigned"))[-1][1] == 1
+    assert (await get_sums(hass, "response_time"))[-1][1] == 1
+    # Counted as a real deployment, in whichever schedule the incident fell.
+    assert "100" in {
+        hass.states.get(f"sensor.deployment_percentage_{schedule}").state
+        for schedule in ("day", "evening_night_weekend")
+    }
 
 
 async def test_history_paging_ignored(

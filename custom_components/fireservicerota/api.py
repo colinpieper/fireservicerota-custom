@@ -122,14 +122,21 @@ class FireServiceRotaApi(FireServiceRota):
         return response if isinstance(response, dict) else None
 
     def get_incidents_page(
-        self, page: int, per_page: int
+        self, page: int, per_page: int, updated_after: datetime | None = None
     ) -> list[dict[str, Any]] | None:
-        """Get one page of incidents without incident responses."""
+        """Get one page of incidents without incident responses.
+
+        With updated_after only incidents changed since then, e.g. by editing
+        the report or who went out.
+        """
+        params: dict[str, Any] = {"page": page, "per_page": per_page}
+        if updated_after is not None:
+            params["updated_after"] = updated_after.isoformat()
         incidents = self._request(
             "GET",
             endpoint="incidents",
             log_msg_action="get incidents page",
-            params={"page": page, "per_page": per_page},
+            params=params,
             auth_request=False,
         )
         return incidents if isinstance(incidents, list) else None

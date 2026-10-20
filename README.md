@@ -59,10 +59,10 @@ The integration keeps long-term statistics of all your incident alerts. For dash
 |---|---|
 | `fireservicerota:user_<user id>_incidents` | Incident alerts you were alerted for (that have a response of yours, so not those from before you joined) |
 | `fireservicerota:user_<user id>_acknowledged` | Alerts you acknowledged |
-| `fireservicerota:user_<user id>_assigned` | Alerts you were assigned to |
-| `fireservicerota:user_<user id>_response_time` | Hours from alert to `end_time` of assigned incidents (at most 24 h each) |
+| `fireservicerota:user_<user id>_assigned` | Alerts you went out on: you were assigned, or your reported status is `dispatched` |
+| `fireservicerota:user_<user id>_response_time` | Hours from alert to `end_time` of incidents you went out on (at most 24 h each) |
 
-On first start the integration fetches all incidents the API returns. That takes one request per incident, one every 4 seconds. When the API refuses a request (it rate limits after about 20 requests within a minute), the integration waits a minute and tries again, and otherwise continues on the next sync. After that it checks for new incidents at startup, daily and after every `ended` event. An incident without an `end_time` is fetched again until it has one, or until it is 7 days old. Incidents are counted in the hour they were created.
+On first start the integration fetches all incidents the API returns. That takes one request per incident, one every 4 seconds. When the API refuses a request (it rate limits after about 20 requests within a minute), the integration waits a minute and tries again, and otherwise continues on the next sync. After that it checks for new incidents at startup, daily and after every `ended` event. Incidents are often edited after they ended, for example to record who actually went out. So an incident is fetched again on every sync until its report is approved or it is 30 days old, and after that whenever the API lists it as updated since the previous sync. The statistics and deployment percentages then follow the edit. Incidents are counted in the hour they were created.
 
 ### Deployment percentage
 
