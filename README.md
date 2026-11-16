@@ -71,12 +71,14 @@ On first start the integration fetches all incidents the API returns. That takes
 - Day: weekdays from 6:00 until 18:00.
 - Evening, night and weekend: all other times.
 
-An incident counts for the schedule it started in. The API doesn't provide the percentage, so it is calculated from the incident history: (real + virtual deployments) / alarms, over the current calendar year or since the last 10 deployments, whichever is shorter.
+An incident counts for the schedule it started in. The API doesn't provide the percentage, so it is calculated from the incident history: (real + virtual deployments) / alarms, over the last 10 alarms of the schedule in the current calendar year. That reading matched the system's proposals best since October 2026; the earlier reading, since the last 10 deployments, didn't.
 
 - Real deployment: you were assigned, or your reported status is `dispatched`.
 - Virtual deployment: you were available (`available_at_incident_creation`) or on duty at the alarm, but rejected or didn't respond, or acknowledged and didn't show up (`no_show`).
 
 Attributes: `alarms`, `real_deployments`, `virtual_deployments`. It is updated after every sync of the incident history.
+
+The history also keeps, per incident, the seats of the system's proposal (`incident_skill_assignments`) and everyone's actual seats (`assigned_skill_ids`), so the estimate can be checked against the real proposals. Incidents stored by an older version are fetched again once to add them.
 
 #### Colleagues and the seat ranking
 

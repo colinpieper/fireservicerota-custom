@@ -70,6 +70,7 @@ INCIDENT_KEYS = {
     "responses",
     "approval_status",
     "final",
+    "suggested",
 }
 
 # Response statuses that are not declining or ignoring the alert.
@@ -105,6 +106,7 @@ def summarize_response(response: Mapping[str, Any]) -> dict[str, Any]:
         "status": response.get("status"),
         "reported_status": response.get("reported_status"),
         "assigned": bool(response.get("assigned_skill_ids")),
+        "skill_ids": response.get("assigned_skill_ids") or [],
     }
 
 
@@ -144,9 +146,9 @@ def deployment_stats(
 ) -> dict[str, int] | None:
     """Return the deployment percentage as used for the fair deployment proposal.
 
-    (real + virtual deployments) / alarms, over the current calendar year or
-    since the last DEPLOYMENT_WINDOW deployments, whichever is shorter. Without
-    a user id it is the user's own, with a schedule only incidents in it count.
+    (real + virtual deployments) / alarms, over the last DEPLOYMENT_WINDOW
+    alarms of the current calendar year. Without a user id it is the user's
+    own, with a schedule only incidents in it count.
     """
     year_start = dt_util.start_of_local_day(now).replace(month=1, day=1)
     alarms: list[tuple[datetime, Mapping[str, Any]]] = []
@@ -165,9 +167,7 @@ def deployment_stats(
     alarms.sort(key=lambda alarm: alarm[0], reverse=True)
 
     count = real = virtual = 0
-    for _created, incident in alarms:
-        if real + virtual >= DEPLOYMENT_WINDOW:
-            break
+    for _created, incident in alarms[:DEPLOYMENT_WINDOW]:
         count += 1
         if is_real_deployment(incident):
             real += 1
@@ -265,6 +265,12 @@ def summarize_incident(
             str(response["user_id"]): summarize_response(response)
             for response in incident.get("incident_responses") or []
             if response.get("user_id") is not None
+        },
+        # The seats of the system's fair deployment proposal, per user id.
+        "suggested": {
+            str(assignment["user_id"]): assignment["skill_ids"]
+            for assignment in incident.get("incident_skill_assignments") or []
+            if assignment.get("user_id") is not None and assignment.get("skill_ids")
         },
         "approval_status": incident.get("approval_status"),
         # Incidents are edited after they ended, e.g. who went out.

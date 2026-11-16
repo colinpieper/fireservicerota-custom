@@ -65,7 +65,7 @@ HISTORY_FINAL_AGE = timedelta(days=30)
 # Margin on the previous sync time when asking for updated incidents.
 HISTORY_UPDATED_MARGIN = timedelta(minutes=10)
 MAX_RESPONSE_MINUTES = 1440
-# The deployment percentage covers at most this many recent deployments.
+# The deployment percentage covers at most this many recent alarms.
 DEPLOYMENT_WINDOW = 10
 
 # Duty schedules with their own deployment percentages: weekdays from
