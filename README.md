@@ -78,7 +78,7 @@ An incident counts for the schedule it started in. The API doesn't provide the p
 
 Attributes: `alarms`, `real_deployments`, `virtual_deployments`. It is updated after every sync of the incident history.
 
-The history also keeps, per incident, the seats of the system's proposal (`incident_skill_assignments`) and everyone's actual seats (`assigned_skill_ids`), so the estimate can be checked against the real proposals. Incidents stored by an older version are fetched again once to add them.
+The history also keeps everyone's actual seats (`assigned_skill_ids`) per incident. The API replaces the system's proposal (`incident_skill_assignments`) with the actual seats afterwards, so the integration records the proposal live: every change while responding is open, with who had acknowledged by then, and the proposal as locked at `response_closed`. Later edits of the seats are left out. This lets the estimate be checked against the real proposals.
 
 #### Colleagues and the seat ranking
 

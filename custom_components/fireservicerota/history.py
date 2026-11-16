@@ -38,7 +38,7 @@ from .const import (
     SCHEDULE_EVENING_NIGHT_WEEKEND,
     SIGNAL_HISTORY,
 )
-from .coordinator import FireServiceRotaClient
+from .coordinator import FireServiceRotaClient, proposal_seats
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -70,7 +70,6 @@ INCIDENT_KEYS = {
     "responses",
     "approval_status",
     "final",
-    "suggested",
 }
 
 # Response statuses that are not declining or ignoring the alert.
@@ -266,12 +265,6 @@ def summarize_incident(
             for response in incident.get("incident_responses") or []
             if response.get("user_id") is not None
         },
-        # The seats of the system's fair deployment proposal, per user id.
-        "suggested": {
-            str(assignment["user_id"]): assignment["skill_ids"]
-            for assignment in incident.get("incident_skill_assignments") or []
-            if assignment.get("user_id") is not None and assignment.get("skill_ids")
-        },
         "approval_status": incident.get("approval_status"),
         # Incidents are edited after they ended, e.g. who went out.
         "final": incident.get("approval_status") == "approved"
@@ -290,16 +283,16 @@ class IncidentHistory:
             hass, STORAGE_VERSION, f"{DOMAIN}.history.{client.entry_id}"
         )
         self._incidents: dict[str, dict[str, Any]] | None = None
+        # The system's proposal per incident id as recorded live, because the
+        # API replaces it with the actual seats afterwards.
+        self._proposals: dict[str, dict[str, Any]] = {}
         self._synced_at: datetime | None = None
         self._lock = asyncio.Lock()
 
     async def async_sync(self, *_args: Any) -> None:
         """Fetch new incidents and update the statistics."""
         async with self._lock:
-            if self._incidents is None:
-                stored = await self._store.async_load() or {}
-                self._incidents = stored.get("incidents", {})
-                self._synced_at = dt_util.parse_datetime(stored.get("synced_at") or "")
+            await self._async_load()
 
             fsr = self._client.fsr
             if fsr.user_id is None:
@@ -309,16 +302,47 @@ class IncidentHistory:
                 return
 
             if await self._async_fetch(user_id):
-                await self._store.async_save(
-                    {
-                        "incidents": self._incidents,
-                        "synced_at": self._synced_at and self._synced_at.isoformat(),
-                    }
-                )
+                await self._async_save()
             self._async_import(user_id)
             async_dispatcher_send(
                 self._hass, SIGNAL_HISTORY.format(self._client.entry_id)
             )
+
+    async def _async_load(self) -> None:
+        """Load the stored history once."""
+        if self._incidents is None:
+            stored = await self._store.async_load() or {}
+            self._incidents = stored.get("incidents", {})
+            self._proposals = stored.get("proposals", {})
+            self._synced_at = dt_util.parse_datetime(stored.get("synced_at") or "")
+
+    async def _async_save(self) -> None:
+        """Save the history."""
+        await self._store.async_save(
+            {
+                "incidents": self._incidents,
+                "proposals": self._proposals,
+                "synced_at": self._synced_at and self._synced_at.isoformat(),
+            }
+        )
+
+    async def async_record_proposal(self, incident_id: int) -> None:
+        """Record the system's proposal as locked when responding closed.
+
+        Later edits of the seats, for example by the officer, are left out.
+        """
+        async with self._lock:
+            await self._async_load()
+            self._proposals[str(incident_id)] = {
+                "locked": proposal_seats(self._client.skill_assignments),
+                "changes": self._client.proposal_changes,
+            }
+            await self._async_save()
+
+    @property
+    def proposals(self) -> dict[str, dict[str, Any]]:
+        """Return the recorded proposals by incident id."""
+        return self._proposals
 
     @property
     def incidents(self) -> list[dict[str, Any]]:
