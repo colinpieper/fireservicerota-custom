@@ -6,6 +6,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
 from pytest_homeassistant_custom_component.components.recorder.common import (
     async_wait_recording_done,
 )
@@ -22,7 +23,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util import dt as dt_util
 
-from .conftest import USER_ID, make_incident
+from .conftest import USER_ID, make_incident, make_message
 
 START = datetime(2026, 1, 1, tzinfo=dt_util.UTC)
 
@@ -137,22 +138,12 @@ def test_summarize_incident() -> None:
         "on_duty": False,
         "status": "acknowledged",
         "reported_status": "dispatched",
-        "suggested": {str(USER_ID): [165]},
         "approval_status": None,
         # Ended, but can still be edited.
         "final": False,
     }
     assigned["approval_status"] = "approved"
     assert summarize_incident(assigned, USER_ID, now)["final"]
-
-    # The system's proposal, users without a seat left out.
-    assigned["incident_skill_assignments"] = [
-        {"user_id": USER_ID, "skill_ids": [165]},
-        {"user_id": 7, "skill_ids": []},
-    ]
-    assert summarize_incident(assigned, USER_ID, now)["suggested"] == {
-        str(USER_ID): [165]
-    }
 
     rejected = make_incident(
         2, created_at=created, status="rejected", end_time=created + timedelta(hours=1)
@@ -211,7 +202,6 @@ def summary(
         "on_duty": on_duty,
         "status": status,
         "reported_status": reported_status,
-        "suggested": {},
         "approval_status": "approved",
         "final": True,
     }
@@ -538,3 +528,43 @@ async def test_history_fetch_failed(
     await hass.async_block_till_done(wait_background_tasks=True)
 
     assert await get_sums(hass, "incidents") == []
+
+
+async def test_proposal_recorded_when_responding_closed(
+    hass: HomeAssistant,
+    freezer: Any,
+    mock_api: MagicMock,
+    setup_integration,
+    send_message,
+) -> None:
+    """Test the proposal is recorded live and locked at response_closed."""
+    entry = await setup_integration()
+    await hass.async_block_till_done()
+    incident = make_incident(status="pending", assigned_skill_ids=[165])
+    mock_api.get_incident.return_value = incident
+    await send_message(make_message(incident))
+
+    # Responder 7 acknowledges and the proposal moves the seat to them.
+    moved = make_incident(status="acknowledged")
+    moved["incident_skill_assignments"] = [{"user_id": 7, "skill_ids": [165]}]
+    mock_api.get_incident.return_value = moved
+    freezer.tick(timedelta(seconds=90))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    # Edited afterwards: not part of the proposal.
+    mock_api.get_incident.return_value = make_incident(
+        status="acknowledged", assigned_skill_ids=[165]
+    )
+    freezer.tick(timedelta(seconds=30))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    proposal = entry.runtime_data.history.proposals["1000"]
+    assert proposal["locked"] == {"7": [165]}
+    assert [change["seats"] for change in proposal["changes"]] == [
+        {str(USER_ID): [165]},
+        {"7": [165]},
+    ]
+    assert proposal["changes"][0]["acknowledged"] == [7]
+    assert proposal["changes"][1]["acknowledged"] == [7, USER_ID]

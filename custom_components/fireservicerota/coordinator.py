@@ -1,7 +1,7 @@
 """The FireServiceRota integration."""
 
 from collections import deque
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import date, datetime, timedelta
 import logging
 from typing import TYPE_CHECKING, Any, override
@@ -85,6 +85,15 @@ def _parse_datetime(value: Any) -> datetime | None:
     if not isinstance(value, str):
         return None
     return dt_util.parse_datetime(value)
+
+
+def proposal_seats(assignments: Iterable[Mapping[str, Any]]) -> dict[str, list[int]]:
+    """Return the seats of the system's proposal by user id."""
+    return {
+        str(assignment["user_id"]): sorted(assignment["skill_ids"])
+        for assignment in assignments
+        if assignment.get("user_id") is not None and assignment.get("skill_ids")
+    }
 
 
 def incident_event_data(incident: Mapping[str, Any]) -> dict[str, Any]:
@@ -230,6 +239,8 @@ class FireServiceRotaClient:
         # The seats the system suggested for the last incident, per user.
         self.skill_assignments: list[dict[str, Any]] = []
         self.system_assigned_skill_ids: list[int] | None = None
+        # How the proposal changed while responding was open, oldest first.
+        self.proposal_changes: list[dict[str, Any]] = []
         self.trigger: str | None = None
         self.response_deadline: datetime | None = None
 
@@ -344,6 +355,7 @@ class FireServiceRotaClient:
             self.response = None
             self.system_assigned_skill_ids = None
             self.skill_assignments = []
+            self.proposal_changes = []
             self.trigger = None
             self._incident_seen_at = dt_util.utcnow()
 
@@ -475,6 +487,7 @@ class FireServiceRotaClient:
             self.response = None
             self.system_assigned_skill_ids = None
             self.skill_assignments = []
+            self.proposal_changes = []
             self.response_deadline = None
             self._incident_seen_at = dt_util.utcnow()
             self._response_closed_sent = False
@@ -521,6 +534,8 @@ class FireServiceRotaClient:
             self.responses = data["incident_responses"] or []
         if "incident_skill_assignments" in data:
             self.skill_assignments = data["incident_skill_assignments"] or []
+            if not self._response_closed_sent:
+                self._async_log_proposal()
 
         if (user_id := self.fsr.user_id) is not None:
             self.response = next(
@@ -553,6 +568,25 @@ class FireServiceRotaClient:
 
         if not initial:
             async_dispatcher_send(self._hass, SIGNAL_UPDATE.format(self.entry_id))
+
+    @callback
+    def _async_log_proposal(self) -> None:
+        """Log the proposal when it changed while responding is open."""
+        seats = proposal_seats(self.skill_assignments)
+        if self.proposal_changes and self.proposal_changes[-1]["seats"] == seats:
+            return
+        self.proposal_changes.append(
+            {
+                "at": dt_util.utcnow().isoformat(),
+                "seats": seats,
+                "acknowledged": sorted(
+                    response["user_id"]
+                    for response in self.responses
+                    if response.get("status") == "acknowledged"
+                    and response.get("user_id") is not None
+                ),
+            }
+        )
 
     @callback
     def _async_update_deadline(self, value: Any, *, schedule: bool = True) -> None:

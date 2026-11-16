@@ -10,7 +10,13 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import ConfigType
 
-from .const import DOMAIN, EVENT_ENDED, HISTORY_SYNC_INTERVAL, SIGNAL_EVENT
+from .const import (
+    DOMAIN,
+    EVENT_ENDED,
+    EVENT_RESPONSE_CLOSED,
+    HISTORY_SYNC_INTERVAL,
+    SIGNAL_EVENT,
+)
 from .coordinator import (
     FireServiceConfigEntry,
     FireServiceRotaClient,
@@ -68,7 +74,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: FireServiceConfigEntry) 
         )
 
     @callback
-    def _async_on_event(event_type: str, _data: dict[str, Any]) -> None:
+    def _async_on_event(event_type: str, data: dict[str, Any]) -> None:
+        if event_type == EVENT_RESPONSE_CLOSED:
+            entry.async_create_background_task(
+                hass,
+                history.async_record_proposal(data["id"]),
+                "record proposal",
+            )
         if event_type == EVENT_ENDED:
             _async_sync_history()
 
