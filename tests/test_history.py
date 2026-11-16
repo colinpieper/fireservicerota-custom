@@ -114,6 +114,7 @@ def test_summarize_incident() -> None:
             "status": "acknowledged",
             "reported_status": None,
             "assigned": True,
+            "skill_ids": [1],
         },
         str(USER_ID): {
             "name": "Colin",
@@ -123,6 +124,7 @@ def test_summarize_incident() -> None:
             "status": "acknowledged",
             "reported_status": "dispatched",
             "assigned": True,
+            "skill_ids": [165],
         },
     }
     assert summary == {
@@ -135,12 +137,22 @@ def test_summarize_incident() -> None:
         "on_duty": False,
         "status": "acknowledged",
         "reported_status": "dispatched",
+        "suggested": {str(USER_ID): [165]},
         "approval_status": None,
         # Ended, but can still be edited.
         "final": False,
     }
     assigned["approval_status"] = "approved"
     assert summarize_incident(assigned, USER_ID, now)["final"]
+
+    # The system's proposal, users without a seat left out.
+    assigned["incident_skill_assignments"] = [
+        {"user_id": USER_ID, "skill_ids": [165]},
+        {"user_id": 7, "skill_ids": []},
+    ]
+    assert summarize_incident(assigned, USER_ID, now)["suggested"] == {
+        str(USER_ID): [165]
+    }
 
     rejected = make_incident(
         2, created_at=created, status="rejected", end_time=created + timedelta(hours=1)
@@ -199,6 +211,7 @@ def summary(
         "on_duty": on_duty,
         "status": status,
         "reported_status": reported_status,
+        "suggested": {},
         "approval_status": "approved",
         "final": True,
     }
@@ -240,7 +253,18 @@ def test_deployment_stats() -> None:
         "virtual_deployments": 3,
     }
 
-    # At most the last 10 deployments count.
+    # Only the last 10 alarms count, not the deployments before them.
+    quiet = [summary(now - i * day) for i in range(1, 11)]
+    assert deployment_stats(
+        [*quiet, summary(now - 20 * day, status="acknowledged", assigned=True)], now
+    ) == {
+        "percentage": 0,
+        "alarms": 10,
+        "real_deployments": 0,
+        "virtual_deployments": 0,
+    }
+
+    # At most the last 10 alarms count.
     deployed = [
         summary(now - i * day, status="acknowledged", assigned=True)
         for i in range(1, 13)
